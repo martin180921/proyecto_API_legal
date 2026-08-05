@@ -13,6 +13,13 @@ dist/
 .env
 *.env.local
 
+# Volcados de base de datos. Ninguno debería existir —la política es no bajar
+# datos de producción (bóveda: «Réplica local de Postgres sin datos de
+# producción»)— pero si alguna vez se genera uno a mano, que no acabe en git.
+dumps/
+*.dump
+*.sql.gz
+
 # OS
 .DS_Store
 Thumbs.db

@@ -96,3 +96,41 @@ def db_session(engine):
         if transaccion.is_active:
             transaccion.rollback()
         conexion.close()
+
+
+@pytest.fixture(autouse=True)
+def _reiniciar_rate_limit():
+    """El contador de `app/core/rate_limit.py` vive en memoria del proceso,
+    no en la base de datos: sin esto, los intentos fallidos de un test de
+    login se acumularían sobre el siguiente dentro de la misma sesión de
+    pytest."""
+    from app.core import rate_limit
+
+    rate_limit.reiniciar()
+    yield
+    rate_limit.reiniciar()
+
+
+@pytest.fixture()
+def client(db_session):
+    """`TestClient` con `get_db` sustituido por la sesión transaccional de
+    `db_session`. Los endpoints llaman a `db.commit()`, pero como la sesión
+    está unida a una conexión que ya tiene una transacción abierta desde
+    fuera, ese commit solo hace `flush` — es el patrón documentado de
+    SQLAlchemy para pruebas ("Joining a Session into an External
+    Transaction"). El `transaccion.rollback()` de `db_session` sigue
+    limpiando todo al final del test."""
+    from fastapi.testclient import TestClient
+
+    from app.core.db import get_db
+    from app.main import app
+
+    def _get_db_override():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _get_db_override
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.pop(get_db, None)

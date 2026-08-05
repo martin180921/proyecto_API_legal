@@ -12,9 +12,13 @@ jobs:
     # Las pruebas corren contra Postgres, no SQLite: SQLite ya dio un falso
     # verde (no validaba las claves foráneas) y no puede ejecutar el REVOKE de
     # la migración del audit log. Decidido el 2026-08-05 en la parada P1.
+    #
+    # La major debe ser la MISMA que en docker-compose.yml y que en Railway (18).
+    # Si las tres se separan, CI deja de probar lo que se despliega — y ese es
+    # justo el falso verde que la decisión de usar Postgres venía a evitar.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

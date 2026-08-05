@@ -5,9 +5,15 @@
 #   docker compose up -d db     levantar
 #   docker compose down         parar (los datos sobreviven, están en el volumen)
 #   docker compose down -v      parar y borrar los datos
+#
+# La versión está clavada a la major de Railway (18 a fecha de 2026-08-05, ver
+# `scripts/comparar-esquema.sh`). No es cosmético: un dump de Postgres 18 no
+# restaura en 16, y las diferencias de comportamiento entre majors aparecen
+# justo donde más duelen — permisos, tipos, planificador. Si Railway sube de
+# major, este número sube con él y se registra en la bóveda.
 services:
   db:
-    image: postgres:16
+    image: postgres:18
     container_name: api_legal_db
     environment:
       POSTGRES_USER: postgres
@@ -16,7 +22,13 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # OJO: la imagen oficial de Postgres 18 movió el directorio de datos a
+      # `/var/lib/postgresql/<major>/docker` y declara el volumen en
+      # `/var/lib/postgresql`, no en `.../data` como hacía la de 16. Montar aquí
+      # es lo que recomienda la imagen; montar en `.../data` como antes deja el
+      # volumen sin usar y los datos dentro del contenedor, que se pierden al
+      # recrearlo sin avisar.
+      - pgdata:/var/lib/postgresql
       # Se ejecuta una sola vez, al crear el volumen. Si cambias este script
       # después, hace falta `docker compose down -v` para que vuelva a correr.
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro

@@ -16,7 +16,7 @@ from app.services import auditoria
 
 
 def _crear_org_y_usuario(db_session):
-    org = Organizacion(nombre="Bufete Infante")
+    org = Organizacion(nombre="Bufete Infante", slug="bufete-infante")
     db_session.add(org)
     db_session.flush()
     usuario = Usuario(organizacion_id=org.id, email="juan.diego@example.com", contrasena_hash="x")

@@ -11,7 +11,7 @@ from app.models.usuario import Usuario
 
 
 def test_crear_organizacion_y_usuario(db_session):
-    org = Organizacion(nombre="Bufete Infante")
+    org = Organizacion(nombre="Bufete Infante", slug="bufete-infante")
     db_session.add(org)
     db_session.flush()
 
@@ -52,7 +52,7 @@ def test_organizacion_inexistente_falla(db_session):
 
 
 def test_email_duplicado_en_la_misma_organizacion_falla(db_session):
-    org = Organizacion(nombre="Bufete Infante")
+    org = Organizacion(nombre="Bufete Infante", slug="bufete-infante")
     db_session.add(org)
     db_session.flush()
 
@@ -72,8 +72,8 @@ def test_mismo_email_en_dos_organizaciones_es_valido(db_session):
     """La misma persona puede ser usuaria de dos firmas. Es el corolario de
     que la unicidad sea por organización y no global, y condiciona el login
     de T4: el email por sí solo no identifica a un usuario."""
-    una = Organizacion(nombre="Bufete Infante")
-    otra = Organizacion(nombre="Bufete Aliado")
+    una = Organizacion(nombre="Bufete Infante", slug="bufete-infante")
+    otra = Organizacion(nombre="Bufete Aliado", slug="bufete-aliado")
     db_session.add_all([una, otra])
     db_session.flush()
 
