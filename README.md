@@ -15,6 +15,15 @@ check, logging estructurado. **Todavía no incluye** base de datos, autenticaci�
 seguimiento de expedientes — eso es Fase 1, ya definida en la decisión
 `Flujo central de Fase 1 — seguimiento de expedientes judiciales` (bóveda, `API Legal/Decisiones/`).
 
+## Producción
+
+`https://proyectoapilegal-production.up.railway.app` — Railway. Despliegue automático: cada push a
+`main` dispara un deploy nuevo, sin paso manual.
+
+```bash
+curl https://proyectoapilegal-production.up.railway.app/v1/health
+```
+
 ## Arrancar en local
 
 ```bash
@@ -69,17 +78,14 @@ Definidas en `Reglas de trabajo del desarrollador único` (bóveda de Obsidian, 
 
 ## Pendiente (siguiente sesión de código, Semana 2 del horario)
 
-- Cuentas y accesos: dominio, hosting, base de datos, gestor de secretos — decisión de Martin, no
-  del agente.
-- Desplegar este esqueleto a producción (hoy solo corre en local).
-- Modelo de datos base (organización, auditoría) y autenticación.
+- Modelo de datos base (organización, auditoría) y autenticación (T2–T4 de `Plan técnico por
+  fases.md` en la bóveda).
 
 ## Nota sobre esta carpeta
 
-Vive dentro de `Revision de procesos`, sincronizada con OneDrive, junto a los documentos fuente
-originales (Word y Excel) — es la misma carpeta que ya usaba Martin, a propósito. Conviene que
-Windows/OneDrive no sincronice `.venv/` ni `__pycache__/`: ya están en `.gitignore`, y si OneDrive
-insiste en subirlos igual, excluirlos desde "Liberar espacio" / propiedades de la carpeta.
+Este repositorio vive en `C:\dev\proyecto_API_legal`, **fuera de** OneDrive (a propósito: git y
+OneDrive no se llevan bien). Los documentos fuente originales de Juan Diego (Word y Excel) siguen en
+`Desktop\Revision de procesos`, sincronizada con OneDrive — esa carpeta ya no tiene código.
 
 ## Dónde está el porqué
 
