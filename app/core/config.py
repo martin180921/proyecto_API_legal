@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     log_level: str = "INFO"
     api_v1_prefix: str = "/v1"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/api_legal"
+    secret_key: str = "cambiar-en-produccion"
 
 
 settings = Settings()
