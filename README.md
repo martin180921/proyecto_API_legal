@@ -24,6 +24,26 @@ seguimiento de expedientes — eso es Fase 1, ya definida en la decisión
 curl https://proyectoapilegal-production.up.railway.app/v1/health
 ```
 
+La configuración de despliegue vive en `railway.json`, versionada, no en la UI de Railway. Lo
+importante de ese archivo es el **pre-deploy command**: `alembic upgrade head` corre antes de
+arrancar el contenedor. Sin él, con despliegue automático desde `main`, el código se adelanta al
+esquema de la base de datos y es cuestión de tiempo que rompa.
+
+Railway necesita, además, una base de datos Postgres en el proyecto y la variable `DATABASE_URL`
+del servicio de la API referenciando la del Postgres (`${{Postgres.DATABASE_URL}}`).
+
+> **El audit log no está protegido si el rol de la base de datos es superusuario.** Railway entrega
+> por defecto un `DATABASE_URL` con superusuario, y un superusuario de Postgres ignora el `REVOKE`
+> que protege `eventos_auditoria`. Comprobar cuál es el caso:
+>
+> ```sql
+> select current_user, usesuper from pg_user where usename = current_user;
+> ```
+>
+> Si devuelve `t`, la barrera es inerte en producción. Está aceptado para el piloto y planificado
+> para F3 (rol de migración ≠ rol de aplicación, ninguno superusuario) — pero conviene saberlo, no
+> descubrirlo.
+
 ## Base de datos local
 
 Postgres en Docker. No hay contenedor de la aplicación a propósito: la app se corre con `uvicorn`
