@@ -12,8 +12,13 @@
 -- «Multi-tenancy y audit log desde el día 1» en la bóveda: el arreglo (rol de
 -- migración ≠ rol de aplicación, ninguno superusuario) está planificado para F3.
 
-CREATE ROLE api_legal_app WITH LOGIN PASSWORD 'api_legal_app' NOSUPERUSER CREATEDB;
+-- Sin CREATEDB: las bases las crea `postgres` justo abajo, y la aplicación solo
+-- se conecta a ellas. Importa de cara a F3, cuando este script sea la receta
+-- del rol de producción: un rol de aplicación que puede crear bases es
+-- privilegio de más, y el privilegio de más se hereda sin que nadie lo revise.
+CREATE ROLE api_legal_app WITH LOGIN PASSWORD 'api_legal_app' NOSUPERUSER;
 
--- El rol es owner: necesita crear el esquema al correr las migraciones.
+-- El rol es owner de las bases: eso le basta para crear el esquema al correr
+-- las migraciones.
 CREATE DATABASE api_legal OWNER api_legal_app;
 CREATE DATABASE api_legal_test OWNER api_legal_app;
