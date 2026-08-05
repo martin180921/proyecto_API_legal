@@ -9,16 +9,18 @@ coste de tenerlo desde ahora es cercano a cero.
 orden de creación, relevante porque la API se piensa desde el día 1 para
 abrirse a bancos y Estado. `sqlalchemy.Uuid` es agnóstico de motor — mismo
 tipo en SQLite (tests) y Postgres (producción).
+
+`creado_en` lo pone el **servidor de base de datos** (`server_default`), no el
+proceso de la app. En un audit log con posible valor probatorio, un timestamp
+que depende del reloj del contenedor de Railway es más fácil de discutir que
+uno emitido por Postgres; y con más de un proceso web, el reloj de la BD es
+además el único común a todos. Revisión de seguridad 2026-08-05.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Uuid
+from sqlalchemy import DateTime, ForeignKey, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
-
-
-def _ahora() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class IDMixin:
@@ -26,7 +28,7 @@ class IDMixin:
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     creado_en: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_ahora, nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

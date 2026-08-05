@@ -24,6 +24,31 @@ seguimiento de expedientes — eso es Fase 1, ya definida en la decisión
 curl https://proyectoapilegal-production.up.railway.app/v1/health
 ```
 
+## Base de datos local
+
+Postgres en Docker. No hay contenedor de la aplicación a propósito: la app se corre con `uvicorn`
+en la máquina, que es más rápido de iterar.
+
+```bash
+docker compose up -d db
+```
+
+Eso levanta Postgres 16 y, la primera vez, crea el rol `api_legal_app` y las bases `api_legal`
+(desarrollo) y `api_legal_test` (pruebas) — ver `scripts/init-db.sql`. Después, aplicar las
+migraciones:
+
+```bash
+alembic upgrade head
+```
+
+> **El rol `api_legal_app` no es superusuario, y eso es deliberado.** Un superusuario de Postgres
+> ignora los `GRANT`/`REVOKE`, así que con uno el `REVOKE UPDATE, DELETE` que protege el audit log
+> no haría nada y la prueba que lo verifica pasaría en verde sin comprobar nada. Verificado contra
+> Postgres 16 el 2026-08-05.
+
+Si cambias `scripts/init-db.sql`, hace falta `docker compose down -v` para que vuelva a ejecutarse:
+solo corre al crear el volumen.
+
 ## Arrancar en local
 
 ```bash
@@ -45,12 +70,27 @@ Documentación OpenAPI autogenerada (contrato explícito desde el código) en
 
 ## Pruebas
 
+Necesitan la base de datos levantada (`docker compose up -d db`).
+
 ```bash
 pytest
 ```
 
-Cubren el camino feliz (`/v1/health` responde 200) y el error principal (ruta inexistente responde
-404, no 500) — mínimo exigido por la Definition of Done del proyecto.
+**Corren contra Postgres, no SQLite.** Motivo: en la revisión de la parada P1 (2026-08-05) SQLite
+dio un falso verde — no validaba las claves foráneas, así que una fila huérfana pasaba en verde y
+habría reventado en producción. Además el `REVOKE` del audit log es DDL de Postgres, así que sobre
+SQLite las migraciones ni siquiera podían ejecutarse y no se probaban en ningún sitio.
+
+El esquema de pruebas lo crea `alembic upgrade head`, no `create_all`: cada ejecución de la suite
+comprueba también que las migraciones corren y dicen lo mismo que los modelos. Cada test va dentro
+de una transacción que se revierte al terminar.
+
+La suite cubre el camino feliz (`/v1/health` responde 200) y el error principal (ruta inexistente
+responde 404, no 500) — mínimo exigido por la Definition of Done —, más el modelo de datos, la
+integridad referencial, la unicidad del email por organización y la inmutabilidad del audit log.
+
+Para apuntar a otra base de datos, `DATABASE_URL_TEST`. La suite se niega a arrancar si esa
+variable parece apuntar a producción.
 
 ## Estructura
 
@@ -58,10 +98,16 @@ Cubren el camino feliz (`/v1/health` responde 200) y el error principal (ruta in
 app/
   main.py          - punto de entrada; monta las rutas bajo /v1 y el logging de peticiones
   core/config.py   - configuración por variables de entorno (pydantic-settings)
+  core/db.py       - engine, sesiones y declarative base
   core/logging.py  - logging estructurado (JSON) a stdout
   api/v1/health.py - GET /v1/health
-tests/             - pruebas automáticas
-.github/workflows/ci.yml - pytest en cada push (inerte hasta conectar un remoto)
+  models/          - modelos SQLAlchemy (organizacion, usuario, evento_auditoria)
+  services/        - lógica de escritura; auditoria.py es la única vía al audit log
+alembic/versions/  - migraciones
+tests/             - pruebas automáticas (contra Postgres)
+scripts/init-db.sql      - rol y bases de datos de desarrollo
+docker-compose.yml       - Postgres local
+.github/workflows/ci.yml - pytest contra Postgres en cada push
 ```
 
 ## Convenciones (no negociables)

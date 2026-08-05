@@ -23,25 +23,39 @@ def upgrade() -> None:
     op.create_table(
         "organizaciones",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("creado_en", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "creado_en",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("nombre", sa.String(length=255), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
         "usuarios",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("creado_en", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "creado_en",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.Column("organizacion_id", sa.Uuid(), nullable=False),
         sa.Column("email", sa.String(length=255), nullable=False),
         sa.Column("contrasena_hash", sa.String(length=255), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["organizacion_id"], ["organizaciones.id"]),
-        sa.UniqueConstraint("email"),
+        # El email es único DENTRO de una organización, no en toda la
+        # plataforma: la misma persona puede ser usuaria de dos firmas.
+        # Decisión de tenancy registrada en la bóveda el 2026-08-05
+        # ([[Email único por organización, no global]]).
+        sa.UniqueConstraint("organizacion_id", "email", name="uq_usuarios_organizacion_email"),
     )
     op.create_index(
         op.f("ix_usuarios_organizacion_id"), "usuarios", ["organizacion_id"], unique=False
     )
-    op.create_index(op.f("ix_usuarios_email"), "usuarios", ["email"], unique=True)
+    op.create_index(op.f("ix_usuarios_email"), "usuarios", ["email"], unique=False)
 
 
 def downgrade() -> None:

@@ -1,0 +1,30 @@
+# Postgres local para desarrollo y pruebas. Solo esto: no hay contenedor de la
+# aplicación a propósito — la app se corre con `uvicorn` en la máquina, que es
+# más rápido de iterar. Ver README, «Base de datos local».
+#
+#   docker compose up -d db     levantar
+#   docker compose down         parar (los datos sobreviven, están en el volumen)
+#   docker compose down -v      parar y borrar los datos
+services:
+  db:
+    image: postgres:16
+    container_name: api_legal_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Se ejecuta una sola vez, al crear el volumen. Si cambias este script
+      # después, hace falta `docker compose down -v` para que vuelva a correr.
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -8,10 +8,37 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Las pruebas corren contra Postgres, no SQLite: SQLite ya dio un falso
+    # verde (no validaba las claves foráneas) y no puede ejecutar el REVOKE de
+    # la migración del audit log. Decidido el 2026-08-05 en la parada P1.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Rol NO superusuario: un superusuario ignora el REVOKE del audit log y
+      # dejaría esa prueba pasando en verde sin comprobar nada. Lo crea
+      # scripts/init-db.sql.
+      DATABASE_URL_TEST: postgresql+psycopg://api_legal_app:api_legal_app@localhost:5432/api_legal_test
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Crear rol y bases de datos de prueba
+        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f scripts/init-db.sql
       - run: pytest
