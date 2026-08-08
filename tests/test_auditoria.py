@@ -151,7 +151,11 @@ def test_revoke_impide_update_y_delete_del_audit_log(db_session):
     ):
         with pytest.raises(ProgrammingError) as error:
             db_session.execute(text(sentencia))
-        assert "permission denied" in str(error.value).lower()
+        # Se compara el SQLSTATE y no el texto: Postgres traduce sus mensajes
+        # según `lc_messages`, así que en una máquina en español el mensaje es
+        # "permiso denegado" y la prueba se ponía roja sin haber ningún defecto.
+        # 42501 = insufficient_privilege, y ese código no se traduce nunca.
+        assert error.value.orig.sqlstate == "42501"
         db_session.rollback()
 
 
