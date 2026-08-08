@@ -7,6 +7,21 @@ minutos, con evento de auditoría al superarlo. El login recibe organización
 (slug) + email + contraseña como campos explícitos, no subdominio — decisión
 directa de [[Email único por organización, no global]].
 
+Qué deja este módulo en el audit log
+------------------------------------
+| Qué pasa            | accion               | entidad        | usuario_id      |
+|---------------------|----------------------|----------------|-----------------|
+| Registro            | `crear`              | `organizacion` / `usuario` | el creado |
+| Login correcto      | `login`              | `sesion`       | quien entra     |
+| Contraseña mala     | `login_fallido`      | `login_fallido`| quien lo intenta |
+| Email inexistente   | `login_fallido`      | `login_fallido`| NULL            |
+| Rate-limit superado | `rate_limit_superado`| `login_fallido`| NULL            |
+
+*Quién entró y cuándo* es el evento principal de una plataforma legal con un
+audit log de posible valor probatorio, así que el login correcto deja rastro
+igual que el fallido. En `detalle` va la IP (y el email en los fallidos, que
+es lo que se estaba probando) — **nunca la contraseña ni el token**.
+
 Sobre el rate-limit y el audit log: `eventos_auditoria.organizacion_id` es
 NOT NULL ([[Multi-tenancy y audit log desde el día 1]]), así que un intento
 de login contra un slug que no existe no puede dejar evento — no hay
@@ -112,8 +127,9 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         # rastro, igual que una contraseña incorrecta — ver docstring.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
+    ip = _clave_ip(request)
     clave_usuario = f"login:org:{organizacion.id}:email:{payload.email}"
-    clave_ip = f"login:org:{organizacion.id}:ip:{_clave_ip(request)}"
+    clave_ip = f"login:org:{organizacion.id}:ip:{ip}"
 
     if limite_superado(clave_usuario) or limite_superado(clave_ip):
         auditoria.registrar(
@@ -121,7 +137,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             organizacion_id=organizacion.id,
             accion="rate_limit_superado",
             entidad="login_fallido",
-            detalle={"ip": _clave_ip(request), "email": payload.email},
+            detalle={"ip": ip, "email": payload.email},
         )
         db.commit()
         raise HTTPException(
@@ -138,7 +154,35 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if usuario is None or not verificar_contrasena(payload.contrasena, usuario.contrasena_hash):
         registrar_intento_fallido(clave_usuario)
         registrar_intento_fallido(clave_ip)
+        auditoria.registrar(
+            db,
+            organizacion_id=organizacion.id,
+            accion="login_fallido",
+            entidad="login_fallido",
+            # Si el email no existe en esta organización no hay a quién
+            # atribuirlo, pero el intento sigue siendo el dato interesante:
+            # alguien probando correos contra una firma concreta.
+            usuario_id=usuario.id if usuario is not None else None,
+            detalle={"ip": ip, "email": payload.email},
+        )
+        # El 401 también tiene que persistir su evento: sin este commit, la
+        # excepción de abajo se lleva por delante la transacción y el intento
+        # fallido no queda registrado en ninguna parte.
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+
+    auditoria.registrar(
+        db,
+        organizacion_id=organizacion.id,
+        accion="login",
+        entidad="sesion",
+        # Una sesión no es una fila de ninguna tabla: `entidad_id` va vacío,
+        # como en el evento de rate-limit. El actor va en `usuario_id`.
+        entidad_id=None,
+        usuario_id=usuario.id,
+        detalle={"ip": ip},
+    )
+    db.commit()
 
     token = crear_token_sesion(usuario.id, organizacion.id)
     return TokenResponse(
