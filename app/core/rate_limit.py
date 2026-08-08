@@ -17,6 +17,12 @@ VENTANA_SEGUNDOS = 15 * 60
 LIMITE_INTENTOS = 5
 
 _intentos: dict[str, list[float]] = defaultdict(list)
+
+# Claves cuyo cruce del umbral ya se auditó en la ventana actual. Se guarda el
+# instante de la marca para poder caducarla con el mismo criterio que el
+# contador: pasada la ventana, la clave vuelve a poder auditarse.
+_auditadas: dict[str, float] = {}
+
 _candado = Lock()
 
 
@@ -49,8 +55,30 @@ def registrar_intento(clave: str) -> int:
         return len(vigentes)
 
 
+def marcar_auditado(clave: str) -> bool:
+    """True solo la **primera** vez que `clave` cruza el umbral en la ventana.
+
+    Existe para que el rate-limit deje de amplificar lo que pretende frenar.
+    Antes, cada petición bloqueada escribía una fila en `eventos_auditoria`:
+    quien insistiera generaba escrituras ilimitadas en la única tabla que por
+    diseño no se puede borrar. El rate-limit no detenía la escritura, la
+    provocaba.
+
+    Lo interesante para auditar es la **transición** —esta clave se ha
+    bloqueado—, no cada una de las peticiones que rebotan después.
+    """
+    ahora = time.monotonic()
+    with _candado:
+        marca = _auditadas.get(clave)
+        if marca is not None and ahora - marca < VENTANA_SEGUNDOS:
+            return False
+        _auditadas[clave] = ahora
+        return True
+
+
 def reiniciar() -> None:
     """Vacía el estado en memoria. Solo para pruebas: sin esto, los tests de
     rate-limit se contaminarían entre sí dentro de la misma sesión de pytest."""
     with _candado:
         _intentos.clear()
+        _auditadas.clear()

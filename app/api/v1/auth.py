@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.rate_limit import limite_superado, registrar_intento
+from app.core.rate_limit import limite_superado, marcar_auditado, registrar_intento
 from app.core.security import (
     EXPIRACION_TOKEN,
     ActorActual,
@@ -191,15 +191,27 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     clave_usuario = f"login:org:{organizacion.id}:email:{payload.email}"
     clave_ip = f"login:org:{organizacion.id}:ip:{ip}"
 
-    if limite_superado(clave_usuario) or limite_superado(clave_ip):
-        auditoria.registrar(
-            db,
-            organizacion_id=organizacion.id,
-            accion="rate_limit_superado",
-            entidad="login_fallido",
-            detalle={"ip": ip, "email": payload.email},
-        )
-        db.commit()
+    superadas = [clave for clave in (clave_usuario, clave_ip) if limite_superado(clave)]
+    if superadas:
+        # Se audita solo la TRANSICIÓN: la primera vez que una clave cruza el
+        # umbral dentro de la ventana. Antes se escribía una fila por cada
+        # petición bloqueada, así que quien insistiera generaba escrituras
+        # ilimitadas en la única tabla que por diseño no se puede borrar — el
+        # rate-limit no detenía la escritura, la provocaba.
+        #
+        # La lista se materializa a propósito, en vez de un `any(...)` que
+        # cortocircuitaría: las dos claves tienen que quedar marcadas, o la
+        # segunda acabaría auditándose en una petición posterior.
+        nuevas = [clave for clave in superadas if marcar_auditado(clave)]
+        if nuevas:
+            auditoria.registrar(
+                db,
+                organizacion_id=organizacion.id,
+                accion="rate_limit_superado",
+                entidad="login_fallido",
+                detalle={"ip": ip, "email": payload.email},
+            )
+            db.commit()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Demasiados intentos fallidos. Intenta de nuevo en unos minutos.",

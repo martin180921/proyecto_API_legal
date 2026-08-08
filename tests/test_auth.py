@@ -380,6 +380,34 @@ def test_login_supera_rate_limit_devuelve_429_con_auditoria(client, db_session):
     assert evento.detalle["email"] == "juan.diego@example.com"
 
 
+def test_insistir_tras_el_bloqueo_no_multiplica_los_eventos(client, db_session):
+    """El rate-limit no puede ser un amplificador de escrituras.
+
+    Antes, cada petición bloqueada escribía una fila en `eventos_auditoria`:
+    quien insistiera generaba escrituras ilimitadas en la única tabla que por
+    diseño no se puede borrar. Lo auditable es la transición —esta clave se ha
+    bloqueado—, no cada rebote posterior."""
+    registro = _registrar(client).json()
+    intento = {
+        "organizacion": registro["organizacion_slug"],
+        "email": "juan.diego@example.com",
+        "contrasena": "mala",
+    }
+
+    for _ in range(rate_limit.LIMITE_INTENTOS):
+        assert client.post("/v1/auth/login", json=intento).status_code == 401
+
+    for _ in range(10):
+        assert client.post("/v1/auth/login", json=intento).status_code == 429
+
+    eventos = (
+        db_session.query(EventoAuditoria)
+        .filter_by(organizacion_id=registro["organizacion_id"], accion="rate_limit_superado")
+        .all()
+    )
+    assert len(eventos) == 1
+
+
 def test_yo_sin_token_devuelve_401(client):
     respuesta = client.get("/v1/auth/yo")
     assert respuesta.status_code == 401
