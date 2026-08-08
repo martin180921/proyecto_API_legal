@@ -33,9 +33,15 @@ Railway necesita, además, una base de datos Postgres en el proyecto y la variab
 del servicio de la API referenciando la del Postgres (`${{Postgres.DATABASE_URL}}`).
 
 > **`SECRET_KEY` real antes del primer deploy con T4.** El JWT de sesión se firma con esta clave; el
-> valor por defecto de `config.py` es `cambiar-en-produccion` y no sirve. Generar una clave real
-> (por ejemplo `python -c "import secrets; print(secrets.token_hex(32))"`) y ponerla como variable
-> de entorno en el servicio de Railway — nunca en el repo ni en la bóveda.
+> valor por defecto de `config.py` es `cambiar-en-produccion`, está en este repo público y no sirve.
+> Generarla con `python -c "import secrets; print(secrets.token_urlsafe(64))"` y ponerla como
+> variable de entorno en el servicio de Railway — nunca en el repo ni en la bóveda.
+>
+> **No hay que acordarse: el código lo impide.** Con `APP_ENV=production`, `config.py` se niega a
+> construir la configuración si la clave es una de las de ejemplo o mide menos de 32 caracteres.
+> La app no arranca, el pre-deploy falla y el deploy no sale. Es a propósito: sin esta guarda el
+> fallo sería silencioso (la app arranca, `/v1/health` responde 200) y cualquiera que leyera el
+> repo podría firmar un JWT válido para cualquier organización.
 
 > **El audit log no está protegido si el rol de la base de datos es superusuario.** Railway entrega
 > por defecto un `DATABASE_URL` con superusuario, y un superusuario de Postgres ignora el `REVOKE`
