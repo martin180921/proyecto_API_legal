@@ -35,6 +35,50 @@ def test_una_url_que_ya_trae_driver_no_se_toca():
     assert Settings(database_url=url).database_url == url
 
 
+def test_un_env_copiado_de_env_example_no_rompe_la_configuracion(tmp_path, monkeypatch):
+    """Seguir `.env.example` al pie de la letra tiene que funcionar.
+
+    `.env.example` sugiere poner `DATABASE_URL_TEST` en el `.env`. Como
+    `Settings` prohíbe campos extra, hacerlo rompía **cualquier** import de
+    `app.core.config` con `ValidationError: extra_forbidden`, y con él
+    `alembic upgrade head`. En CI no se veía: allí la variable llega como
+    variable de proceso, y pydantic-settings solo prohíbe extras a lo que lee
+    del archivo `.env`. Por eso esta prueba escribe un archivo de verdad y
+    limpia el entorno — si no, no probaría nada.
+    """
+    for variable in ("DATABASE_URL", "DATABASE_URL_TEST", "APP_ENV", "SECRET_KEY"):
+        monkeypatch.delenv(variable, raising=False)
+
+    env = tmp_path / ".env"
+    env.write_text(
+        "APP_ENV=local\n"
+        "LOG_LEVEL=INFO\n"
+        "DATABASE_URL=postgresql+psycopg://u:p@localhost:5432/api_legal\n"
+        "DATABASE_URL_TEST=postgresql+psycopg://u:p@localhost:5432/api_legal_test\n"
+        "SECRET_KEY=cambiar-en-produccion\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=str(env))
+
+    assert settings.database_url_test == "postgresql+psycopg://u:p@localhost:5432/api_legal_test"
+
+
+def test_una_variable_mal_escrita_en_el_env_sigue_fallando(tmp_path, monkeypatch):
+    """La configuración estricta se conserva a propósito: el arreglo de arriba
+    es declarar el campo que faltaba, no `extra="ignore"`. Con `ignore`, un
+    `DATABSE_URL` mal tecleado se aceptaría en silencio y la app arrancaría
+    contra la base de datos equivocada."""
+    for variable in ("DATABASE_URL", "DATABASE_URL_TEST", "APP_ENV", "SECRET_KEY"):
+        monkeypatch.delenv(variable, raising=False)
+
+    env = tmp_path / ".env"
+    env.write_text("APP_ENV=local\nDATABSE_URL=postgresql+psycopg://u:p@h:5432/db\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=str(env))
+
+
 @pytest.mark.parametrize(
     "clave",
     [

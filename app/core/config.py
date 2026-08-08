@@ -36,6 +36,22 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+psycopg://api_legal_app:api_legal_app@localhost:5432/api_legal"
     )
+
+    # La aplicación NO usa este campo: quien lee `DATABASE_URL_TEST` es
+    # `tests/conftest.py`, y lo hace del entorno con `os.environ`, como siempre.
+    # Está declarado solo para que tenerlo en el `.env` no reviente.
+    #
+    # Por qué reventaba: `.env.example` sugiere poner `DATABASE_URL_TEST` en el
+    # `.env`, pero `SettingsConfigDict` prohíbe campos extra, así que seguir el
+    # ejemplo al pie de la letra rompía **cualquier** import de este módulo con
+    # `ValidationError: extra_forbidden` — y con él `alembic upgrade head`. En
+    # CI no se veía porque allí la variable llega como variable de proceso, y
+    # pydantic-settings solo aplica «extra forbidden» a lo que lee del archivo.
+    #
+    # Y no se arregla con `extra="ignore"`: eso taparía también las variables
+    # mal escritas, que es justo lo que esta configuración estricta detecta.
+    database_url_test: str | None = None
+
     secret_key: str = "cambiar-en-produccion"
 
     @field_validator("database_url")
