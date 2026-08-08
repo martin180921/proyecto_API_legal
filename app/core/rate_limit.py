@@ -1,4 +1,4 @@
-"""Rate-limit de intentos de login: contador simple en memoria (T4).
+"""Rate-limit por contador simple en memoria (T4): login y registro.
 
 Parámetro fijado por Martin el 2026-08-05 (Plan técnico por fases, bóveda):
 5 intentos por clave en una ventana de 15 minutos, "contador simple (sin
@@ -33,9 +33,14 @@ def limite_superado(clave: str) -> bool:
         return len(vigentes) >= LIMITE_INTENTOS
 
 
-def registrar_intento_fallido(clave: str) -> int:
-    """Anota un intento fallido bajo `clave`. Devuelve cuántos quedan
-    vigentes en la ventana, incluido este."""
+def registrar_intento(clave: str) -> int:
+    """Anota un intento bajo `clave`. Devuelve cuántos quedan vigentes en la
+    ventana, incluido este.
+
+    Qué cuenta como «intento» lo decide quien llama, y no siempre es un fallo:
+    en el login se cuentan los intentos fallidos, pero en `/registro` se cuenta
+    **toda** petición, porque ahí lo que se está limitando es el trabajo caro
+    (bcrypt) y la creación de organizaciones, no el error."""
     ahora = time.monotonic()
     with _candado:
         vigentes = _vigentes(clave, ahora)

@@ -54,6 +54,16 @@ class Settings(BaseSettings):
 
     secret_key: str = "cambiar-en-produccion"
 
+    # `POST /v1/auth/registro` es público, sin límite, y ejecuta bcrypt, que es
+    # caro por diseño. Abierto significa dos cosas: cualquiera puede crear
+    # organizaciones ilimitadas en la base del piloto, y un puñado de peticiones
+    # concurrentes tumba el único proceso de uvicorn que arranca `railway.json`.
+    #
+    # F0 no necesita autoservicio: el piloto es un abogado. El alta se hace con
+    # `scripts/crear_organizacion.py`. Cerrado por defecto a propósito — el
+    # default seguro es el que protege al que despliega sin leer esto.
+    registro_abierto: bool = False
+
     @field_validator("database_url")
     @classmethod
     def _normalizar_driver(cls, valor: str) -> str:

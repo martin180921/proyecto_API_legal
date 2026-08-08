@@ -2,10 +2,23 @@
 con evento de auditoría, y `/v1/auth/yo`."""
 import json
 
+import pytest
+
 from app.core import rate_limit
+from app.core.config import settings
 from app.models.evento_auditoria import EventoAuditoria
 from app.models.organizacion import Organizacion
 from app.models.usuario import Usuario
+
+
+@pytest.fixture(autouse=True)
+def _registro_abierto(monkeypatch):
+    """`REGISTRO_ABIERTO` es **false** por defecto (ver `app/core/config.py`):
+    en F0 el alta la hace `scripts/crear_organizacion.py`, no un endpoint
+    público. Casi todas las pruebas de este archivo necesitan registrarse para
+    tener con qué hacer login, así que abren el registro a propósito. Las que
+    comprueban el comportamiento por defecto lo vuelven a cerrar."""
+    monkeypatch.setattr(settings, "registro_abierto", True)
 
 
 def _registrar(client, nombre_organizacion="Bufete Infante", email="juan.diego@example.com", contrasena="clave-larga-1"):
@@ -40,6 +53,55 @@ def test_registro_crea_organizacion_y_usuario_con_auditoria(client, db_session):
     )
     entidades = {evento.entidad for evento in eventos}
     assert entidades == {"organizacion", "usuario"}
+
+
+def test_registro_cerrado_devuelve_403_sin_tocar_la_base_de_datos(client, db_session, monkeypatch):
+    """El comportamiento por defecto. `POST /v1/auth/registro` es público, sin
+    límite y ejecuta bcrypt, que es caro por diseño: abierto, cualquiera crea
+    organizaciones ilimitadas en la base del piloto y unas pocas peticiones
+    concurrentes tumban el único proceso de uvicorn de `railway.json`."""
+    monkeypatch.setattr(settings, "registro_abierto", False)
+    organizaciones_antes = db_session.query(Organizacion).count()
+
+    respuesta = _registrar(client)
+
+    assert respuesta.status_code == 403
+    # Sin efectos: ni organización, ni usuario, ni evento de auditoría.
+    assert db_session.query(Organizacion).count() == organizaciones_antes
+    assert db_session.query(Usuario).count() == 0
+    assert db_session.query(EventoAuditoria).count() == 0
+
+
+def test_registro_cerrado_no_ejecuta_bcrypt(client, monkeypatch):
+    """La mitad cara del arreglo. El 403 tiene que llegar antes del hash: si
+    solo cortara después, el endpoint seguiría siendo un amplificador de CPU
+    contra un proceso único."""
+    monkeypatch.setattr(settings, "registro_abierto", False)
+
+    def _explota(*args, **kwargs):  # pragma: no cover — no debe llamarse
+        raise AssertionError("bcrypt no debería ejecutarse con el registro cerrado")
+
+    monkeypatch.setattr("app.api.v1.auth.hash_contrasena", _explota)
+
+    assert _registrar(client).status_code == 403
+
+
+def test_registro_abierto_sigue_funcionando_igual(client):
+    """La otra mitad: abrir el flag devuelve el comportamiento de siempre."""
+    respuesta = _registrar(client)
+    assert respuesta.status_code == 201
+    assert respuesta.json()["organizacion_slug"] == "bufete-infante"
+
+
+def test_registro_supera_el_rate_limit_por_ip_y_devuelve_429(client):
+    """Barato, y cubre el día que el registro se abra: sin esto, «abierto»
+    significa ilimitado."""
+    for numero in range(rate_limit.LIMITE_INTENTOS):
+        respuesta = _registrar(client, email=f"usuario{numero}@example.com")
+        assert respuesta.status_code == 201
+
+    bloqueada = _registrar(client, email="uno-mas@example.com")
+    assert bloqueada.status_code == 429
 
 
 def test_registro_con_nombre_repetido_genera_slug_distinto(client):

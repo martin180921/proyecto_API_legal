@@ -142,6 +142,7 @@ sin `slowapi`): **5 intentos por clave (usuario u origen) en 15 minutos**, con e
 
 - `POST /v1/auth/registro` — crea la organización (con un `slug` único generado del nombre) y su
   primer usuario. `201` con `organizacion_id`, `organizacion_slug`, `usuario_id`, `email`.
+  **Cerrado por defecto**: devuelve `403` salvo que `REGISTRO_ABIERTO=true` (ver abajo).
 - `POST /v1/auth/login` — recibe `organizacion` (el **slug**, no el nombre visible), `email` y
   `contrasena`. `200` con el token; `401` si las credenciales no coinciden; `429` si se supera el
   rate-limit.
@@ -155,6 +156,42 @@ login. Ver `app/models/organizacion.py` y la migración `91bd238ab035`.
 rechaza con `401` sin dejar evento de auditoría ni contar contra el límite — `organizacion_id` es
 `NOT NULL` en el audit log y no hay a qué organización atribuir el intento. Aceptado para el piloto,
 mismo criterio que los demás riesgos residuales documentados en la bóveda.
+
+### El registro está cerrado, y las altas se hacen por consola
+
+`REGISTRO_ABIERTO=false` es el valor por defecto. Ese endpoint es público, sin sesión, y ejecuta
+bcrypt, que es caro a propósito: abierto permite a cualquiera crear organizaciones ilimitadas en la
+base del piloto, y unas pocas peticiones concurrentes bastan para tumbar el único proceso de uvicorn
+que arranca `railway.json`. F0 no necesita autoservicio — el piloto es un abogado.
+
+Con el registro cerrado, el alta se hace así:
+
+```bash
+python scripts/crear_organizacion.py --nombre "Bufete Infante" --slug bufete-infante --email juan.diego@example.com
+```
+
+La contraseña se pide por consola para que no quede en el historial del shell. El `slug` es
+**explícito**, a diferencia del endpoint que lo deriva del nombre: es lo que se teclea en cada login,
+así que se elige a conciencia. El script no borra nada y se para sin escribir si el slug ya existe.
+Deja los mismos eventos de auditoría que el endpoint.
+
+`/registro` tiene además rate-limit por IP (misma ventana que el login) tanto abierto como cerrado.
+
+### Qué deja el login en el audit log
+
+*Quién entró y cuándo* es el evento principal de una plataforma legal con un audit log de posible
+valor probatorio, así que el login correcto deja rastro igual que el fallido.
+
+| Qué pasa | `accion` | `entidad` | `usuario_id` |
+|---|---|---|---|
+| Registro | `crear` | `organizacion` / `usuario` | el usuario creado |
+| Login correcto | `login` | `sesion` | quien entra |
+| Contraseña incorrecta | `login_fallido` | `login_fallido` | quien lo intenta |
+| Email inexistente | `login_fallido` | `login_fallido` | `NULL` |
+| Rate-limit superado | `rate_limit_superado` | `login_fallido` | `NULL` |
+
+En `detalle` van la IP y, en los fallidos, el email que se probó. **Nunca la contraseña ni el
+token** — hay una prueba que recorre todos los eventos y lo comprueba.
 
 ## Pruebas
 
@@ -193,7 +230,7 @@ app/
   core/db.py       - engine, sesiones y declarative base
   core/logging.py  - logging estructurado (JSON) a stdout
   core/security.py - hash de contraseña, JWT de sesión, dependencia usuario_actual
-  core/rate_limit.py - contador simple en memoria del rate-limit de login
+  core/rate_limit.py - contador simple en memoria del rate-limit (login y registro)
   api/v1/health.py - GET /v1/health
   api/v1/auth.py   - POST /v1/auth/registro, POST /v1/auth/login, GET /v1/auth/yo
   schemas/auth.py  - esquemas Pydantic de /v1/auth
@@ -202,6 +239,7 @@ app/
 alembic/versions/  - migraciones
 tests/             - pruebas automáticas (contra Postgres)
 scripts/init-db.sql      - rol y bases de datos de desarrollo
+scripts/crear_organizacion.py - alta de organización + primer usuario (el registro está cerrado)
 docker-compose.yml       - Postgres local
 .github/workflows/ci.yml - pytest contra Postgres en cada push
 ```

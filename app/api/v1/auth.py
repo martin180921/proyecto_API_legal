@@ -35,8 +35,9 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
-from app.core.rate_limit import limite_superado, registrar_intento_fallido
+from app.core.rate_limit import limite_superado, registrar_intento
 from app.core.security import (
     EXPIRACION_TOKEN,
     ActorActual,
@@ -78,7 +79,34 @@ def _clave_ip(request: Request) -> str:
 
 
 @router.post("/registro", response_model=RegistroResponse, status_code=status.HTTP_201_CREATED)
-def registro(payload: RegistroRequest, db: Session = Depends(get_db)) -> RegistroResponse:
+def registro(
+    payload: RegistroRequest, request: Request, db: Session = Depends(get_db)
+) -> RegistroResponse:
+    if not settings.registro_abierto:
+        # 403 antes de tocar la base de datos y antes de bcrypt: con el
+        # registro cerrado, esta petición no debe costar nada. El mensaje es
+        # neutro a propósito — no dice si la instancia podría abrirse ni cómo.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro no está disponible en esta instancia.",
+        )
+
+    # Rate-limit por IP aunque el registro esté abierto: es barato y cubre el
+    # día que se abra. Se cuenta ANTES de trabajar, porque lo que se limita es
+    # el trabajo caro (bcrypt) y la creación de organizaciones, no el error.
+    #
+    # Este 429 no deja evento de auditoría, y no es un olvido:
+    # `eventos_auditoria.organizacion_id` es NOT NULL y aquí todavía no hay
+    # ninguna organización a la que atribuirlo — el mismo razonamiento que el
+    # del slug inexistente en el login (ver docstring del módulo).
+    clave_registro = f"registro:ip:{_clave_ip(request)}"
+    if limite_superado(clave_registro):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados registros desde esta dirección. Intenta de nuevo en unos minutos.",
+        )
+    registrar_intento(clave_registro)
+
     slug = _generar_slug_unico(db, payload.nombre_organizacion)
     organizacion = Organizacion(nombre=payload.nombre_organizacion, slug=slug)
     db.add(organizacion)
@@ -152,8 +180,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     )
 
     if usuario is None or not verificar_contrasena(payload.contrasena, usuario.contrasena_hash):
-        registrar_intento_fallido(clave_usuario)
-        registrar_intento_fallido(clave_ip)
+        registrar_intento(clave_usuario)
+        registrar_intento(clave_ip)
         auditoria.registrar(
             db,
             organizacion_id=organizacion.id,
