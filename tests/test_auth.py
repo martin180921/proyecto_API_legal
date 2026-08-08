@@ -235,6 +235,88 @@ def test_login_de_un_email_inexistente_deja_evento_sin_usuario(client, db_sessio
     assert eventos[0].detalle["email"] == "no-trabaja-aqui@example.com"
 
 
+def _ip_del_evento_de_login_fallido(client, db_session, registro, cabeceras=None):
+    """Provoca un login fallido y devuelve la IP que quedó en el audit log.
+
+    El `detalle` del evento es la forma de observar qué IP resolvió el helper
+    sin llamarlo directamente: es la misma que alimenta la clave del
+    rate-limit, así que probar una prueba las dos."""
+    client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": "juan.diego@example.com",
+            "contrasena": "contrasena-equivocada",
+        },
+        headers=cabeceras or {},
+    )
+    evento = (
+        db_session.query(EventoAuditoria)
+        .filter_by(organizacion_id=registro["organizacion_id"], accion="login_fallido")
+        .one()
+    )
+    return evento.detalle["ip"]
+
+
+def test_en_produccion_se_usa_la_ip_de_x_forwarded_for(client, db_session, monkeypatch):
+    """Sin esto, `request.client.host` devuelve la IP del edge de Railway: la
+    clave del rate-limit se colapsa en una sola por organización y 5 fallos de
+    cualquiera dejan fuera a toda la firma 15 minutos."""
+    monkeypatch.setattr(settings, "app_env", "production")
+    registro = _registrar(client).json()
+
+    ip = _ip_del_evento_de_login_fallido(
+        client, db_session, registro, {"X-Forwarded-For": "203.0.113.7"}
+    )
+    assert ip == "203.0.113.7"
+
+
+def test_con_varios_valores_en_x_forwarded_for_se_toma_el_primero(client, db_session, monkeypatch):
+    """El proxy añade por la derecha, así que el cliente original es el de más
+    a la izquierda."""
+    monkeypatch.setattr(settings, "app_env", "production")
+    registro = _registrar(client).json()
+
+    ip = _ip_del_evento_de_login_fallido(
+        client,
+        db_session,
+        registro,
+        {"X-Forwarded-For": "203.0.113.7, 70.41.3.18, 150.172.238.178"},
+    )
+    assert ip == "203.0.113.7"
+
+
+@pytest.mark.parametrize(
+    "cabeceras",
+    [
+        {},  # la cabecera no llega
+        {"X-Forwarded-For": "no-es-una-ip"},  # llega con basura
+        {"X-Forwarded-For": ""},  # llega vacía
+    ],
+)
+def test_sin_x_forwarded_for_valida_se_cae_a_la_ip_directa(client, db_session, monkeypatch, cabeceras):
+    """Se valida además de recortar: sin esto entraría texto arbitrario de la
+    petición en una clave de rate-limit y en el `detalle` del audit log."""
+    monkeypatch.setattr(settings, "app_env", "production")
+    registro = _registrar(client).json()
+
+    ip = _ip_del_evento_de_login_fallido(client, db_session, registro, cabeceras)
+    assert ip == "testclient"  # lo que expone request.client.host en TestClient
+
+
+def test_fuera_de_produccion_se_ignora_x_forwarded_for(client, db_session, monkeypatch):
+    """En local y en CI no hay proxy delante, así que esa cabecera solo puede
+    venir de quien hace la petición: confiar en ella sería regalarle la
+    capacidad de elegir su propia clave de rate-limit."""
+    monkeypatch.setattr(settings, "app_env", "local")
+    registro = _registrar(client).json()
+
+    ip = _ip_del_evento_de_login_fallido(
+        client, db_session, registro, {"X-Forwarded-For": "203.0.113.7"}
+    )
+    assert ip == "testclient"
+
+
 def test_el_detalle_del_audit_log_no_lleva_ni_contrasena_ni_token(client, db_session):
     """Invariante de T4: nunca contraseñas ni tokens en los logs ni en el
     `detalle` de un evento. El audit log es de solo INSERT — lo que entre ahí

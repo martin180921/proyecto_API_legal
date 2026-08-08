@@ -29,6 +29,7 @@ organización a la que atribuirlo. Se responde 401 sin más, igual que con
 credenciales inválidas: no se distingue "organización inexistente" de
 "contraseña incorrecta" en la respuesta, para no revelar qué slugs existen.
 """
+import ipaddress
 import re
 import secrets
 
@@ -74,8 +75,39 @@ def _generar_slug_unico(db: Session, nombre: str) -> str:
     return slug
 
 
-def _clave_ip(request: Request) -> str:
-    return request.client.host if request.client else "desconocida"
+def _ip_cliente(request: Request) -> str:
+    """La IP del cliente de verdad, no la del proxy que tiene delante.
+
+    En Railway `request.client.host` devuelve la IP del *edge*, la misma para
+    todo el tráfico. Con eso, la clave `login:org:<id>:ip:<ip>` se colapsa en
+    **una sola por organización**: 5 fallos de cualquiera dejan fuera a toda la
+    firma durante 15 minutos, y no filtran a ningún atacante. Una protección
+    que se cree activa y no lo está es peor que no tenerla.
+
+    EL SUPUESTO, que hay que revisar el día que cambie el despliegue: confiar
+    en `X-Forwarded-For` **solo es válido porque en Railway todo el tráfico
+    entra por el proxy**, que reescribe la cabecera. Si algún día se expone el
+    puerto de la aplicación directamente, cualquier cliente puede falsificarla
+    —y con ella saltarse el rate-limit o ensuciar el audit log— y esto deja de
+    valer. Por eso solo se mira en `production`: en local y en CI no hay proxy
+    delante, así que la cabecera solo podría venir de quien hace la petición.
+
+    Se toma el **primer** valor: el proxy añade por la derecha, así que el de
+    más a la izquierda es el cliente original.
+    """
+    directa = request.client.host if request.client else "desconocida"
+
+    if settings.app_env != "production":
+        return directa
+
+    primero = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    try:
+        # Validar además de recortar: si la cabecera falta o trae basura, se
+        # cae a la IP directa en vez de meter texto arbitrario de la petición
+        # en una clave de rate-limit y en el `detalle` del audit log.
+        return str(ipaddress.ip_address(primero))
+    except ValueError:
+        return directa
 
 
 @router.post("/registro", response_model=RegistroResponse, status_code=status.HTTP_201_CREATED)
@@ -99,7 +131,7 @@ def registro(
     # `eventos_auditoria.organizacion_id` es NOT NULL y aquí todavía no hay
     # ninguna organización a la que atribuirlo — el mismo razonamiento que el
     # del slug inexistente en el login (ver docstring del módulo).
-    clave_registro = f"registro:ip:{_clave_ip(request)}"
+    clave_registro = f"registro:ip:{_ip_cliente(request)}"
     if limite_superado(clave_registro):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -155,7 +187,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         # rastro, igual que una contraseña incorrecta — ver docstring.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
-    ip = _clave_ip(request)
+    ip = _ip_cliente(request)
     clave_usuario = f"login:org:{organizacion.id}:email:{payload.email}"
     clave_ip = f"login:org:{organizacion.id}:ip:{ip}"
 
