@@ -76,6 +76,21 @@ def marcar_auditado(clave: str) -> bool:
         return True
 
 
+def limpiar(clave: str) -> None:
+    """Olvida los intentos de `clave` y su marca de auditoría.
+
+    La llama el login al autenticar correctamente. Sin esto, cuatro fallos y un
+    acierto dejaban al usuario a un solo fallo del bloqueo durante el resto de
+    la ventana — un acierto no contaba para nada. Comportamiento estándar.
+
+    Se borra también la marca de `marcar_auditado`: si la clave vuelve a
+    bloquearse después, ese bloqueo es una transición nueva y merece su evento.
+    """
+    with _candado:
+        _intentos.pop(clave, None)
+        _auditadas.pop(clave, None)
+
+
 def reiniciar() -> None:
     """Vacía el estado en memoria. Solo para pruebas: sin esto, los tests de
     rate-limit se contaminarían entre sí dentro de la misma sesión de pytest."""

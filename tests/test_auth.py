@@ -408,6 +408,28 @@ def test_insistir_tras_el_bloqueo_no_multiplica_los_eventos(client, db_session):
     assert len(eventos) == 1
 
 
+def test_un_login_correcto_reinicia_el_contador_de_fallos(client):
+    """Cuatro fallos, un acierto, y cuatro fallos más: el usuario sigue
+    recibiendo 401, no 429. Sin esto, un acierto no contaba para nada y el
+    usuario quedaba a un solo fallo del bloqueo durante el resto de la
+    ventana."""
+    registro = _registrar(client).json()
+    fallido = {
+        "organizacion": registro["organizacion_slug"],
+        "email": "juan.diego@example.com",
+        "contrasena": "mala",
+    }
+    correcto = {**fallido, "contrasena": "clave-larga-1"}
+
+    for _ in range(rate_limit.LIMITE_INTENTOS - 1):
+        assert client.post("/v1/auth/login", json=fallido).status_code == 401
+
+    assert client.post("/v1/auth/login", json=correcto).status_code == 200
+
+    for _ in range(rate_limit.LIMITE_INTENTOS - 1):
+        assert client.post("/v1/auth/login", json=fallido).status_code == 401
+
+
 def test_yo_sin_token_devuelve_401(client):
     respuesta = client.get("/v1/auth/yo")
     assert respuesta.status_code == 401

@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.rate_limit import limite_superado, marcar_auditado, registrar_intento
+from app.core.rate_limit import limite_superado, limpiar, marcar_auditado, registrar_intento
 from app.core.security import (
     EXPIRACION_TOKEN,
     ActorActual,
@@ -242,6 +242,12 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         # fallido no queda registrado en ninguna parte.
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+
+    # Un acierto borra el historial de fallos: sin esto, cuatro fallos y un
+    # login correcto dejaban al usuario a un solo fallo del bloqueo durante el
+    # resto de la ventana.
+    limpiar(clave_usuario)
+    limpiar(clave_ip)
 
     auditoria.registrar(
         db,
