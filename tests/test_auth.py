@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from app.api.v1 import auth
 from app.core import rate_limit
 from app.core.config import settings
 from app.models.evento_auditoria import EventoAuditoria
@@ -102,6 +103,36 @@ def test_registro_supera_el_rate_limit_por_ip_y_devuelve_429(client):
 
     bloqueada = _registrar(client, email="uno-mas@example.com")
     assert bloqueada.status_code == 429
+
+
+def test_colision_de_slug_devuelve_409_y_deja_la_sesion_utilizable(client, db_session, monkeypatch):
+    """`_generar_slug_unico` consulta y luego inserta, así que dos registros
+    concurrentes con el mismo nombre pueden elegir el mismo slug y chocar
+    contra el índice único. Sin capturarlo, el IntegrityError subía sin más:
+    500 genérico y sesión inconsistente. Con un solo usuario no pasa nunca; es
+    de los defectos que solo aparecen el día que importa.
+
+    Se fuerza parcheando el generador para que devuelva siempre un slug ya
+    ocupado, que es la colisión que la concurrencia produciría."""
+    primero = _registrar(client, email="primero@example.com").json()
+    ocupado = primero["organizacion_slug"]
+
+    generador_real = auth._generar_slug_unico
+    monkeypatch.setattr(auth, "_generar_slug_unico", lambda db, nombre: ocupado)
+
+    respuesta = _registrar(client, email="segundo@example.com")
+    assert respuesta.status_code == 409
+
+    # La sesión sigue siendo utilizable después de los rollbacks: sin quitar el
+    # parche, una consulta cualquiera tiene que funcionar...
+    assert db_session.query(Organizacion).filter_by(slug=ocupado).one() is not None
+
+    # ...y restaurando el generador, un registro nuevo vuelve a salir bien. Se
+    # restaura solo este parche, no con `monkeypatch.undo()`, que desharía
+    # también el de la fixture que abre el registro.
+    monkeypatch.setattr(auth, "_generar_slug_unico", generador_real)
+    tercero = _registrar(client, nombre_organizacion="Otro Bufete", email="tercero@example.com")
+    assert tercero.status_code == 201
 
 
 def test_registro_con_nombre_repetido_genera_slug_distinto(client):

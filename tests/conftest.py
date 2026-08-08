@@ -84,7 +84,24 @@ def db_session(engine):
     test, para que no se contaminen entre sí."""
     conexion = engine.connect()
     transaccion = conexion.begin()
-    SesionDePrueba = sessionmaker(bind=conexion, autoflush=False, autocommit=False)
+    SesionDePrueba = sessionmaker(
+        bind=conexion,
+        autoflush=False,
+        autocommit=False,
+        # `create_savepoint` es el patrón documentado de SQLAlchemy para unir
+        # una sesión a una transacción externa, y aquí no es un detalle: sin
+        # él, un `db.rollback()` dentro de un endpoint revierte la transacción
+        # de ESTE fixture, no solo lo que el endpoint hizo. Efectos: el test
+        # pierde las filas que había preparado, y el estado se escapa a los
+        # tests siguientes.
+        #
+        # Se descubrió al probar el reintento por colisión de slug de
+        # `/v1/auth/registro` (2026-08-08): el rollback del endpoint borraba la
+        # organización que el propio test había creado, así que el reintento
+        # encontraba el slug libre y devolvía 201 en vez de 409. El defecto
+        # estaba en el fixture, no en el endpoint.
+        join_transaction_mode="create_savepoint",
+    )
     sesion = SesionDePrueba()
 
     try:
