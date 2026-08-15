@@ -1,12 +1,15 @@
 """`/v1/auth`: registro, login (camino feliz y error principal), rate-limit
 con evento de auditoría, y `/v1/auth/yo`."""
 import json
+from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 
 from app.api.v1 import auth
 from app.core import rate_limit
 from app.core.config import settings
+from app.core.security import ALGORITMO_JWT
 from app.models.evento_auditoria import EventoAuditoria
 from app.models.organizacion import Organizacion
 from app.models.usuario import Usuario
@@ -487,4 +490,37 @@ def test_yo_con_token_devuelve_el_usuario_autenticado(client):
 
 def test_yo_con_token_invalido_devuelve_401(client):
     respuesta = client.get("/v1/auth/yo", headers={"Authorization": "Bearer token-falso"})
+    assert respuesta.status_code == 401
+
+
+def _forjar_token(usuario_id, organizacion_id):
+    """Firma un JWT con el mismo `SECRET_KEY` y el mismo algoritmo que
+    `crear_token_sesion` (`app/core/security.py`), pero con `sub` y `org`
+    elegidos a mano en vez de sacados de una sesión real. No es un esquema de
+    firma nuevo: es el mismo token, con claims fabricados para probar qué pasa
+    si no coinciden entre sí."""
+    ahora = datetime.now(timezone.utc)
+    claims = {
+        "sub": str(usuario_id),
+        "org": str(organizacion_id),
+        "exp": ahora + timedelta(hours=8),
+    }
+    return jwt.encode(claims, settings.secret_key, algorithm=ALGORITMO_JWT)
+
+
+def test_token_con_organizacion_distinta_a_la_del_usuario_devuelve_401(client):
+    """Prueba cruzada de tenancy (parada P2): un token no sirve fuera de su
+    organización. `GET /v1/auth/yo` es hoy la única superficie que lee datos
+    de un usuario autenticado, así que es el sitio natural donde crecerán las
+    pruebas de tenancy cuando la Etapa Entrada añada más endpoints que lean
+    datos de negocio."""
+    organizacion_a = _registrar(client, nombre_organizacion="Bufete A", email="a@example.com").json()
+    organizacion_b = _registrar(client, nombre_organizacion="Bufete B", email="b@example.com").json()
+
+    token_cruzado = _forjar_token(
+        usuario_id=organizacion_a["usuario_id"],
+        organizacion_id=organizacion_b["organizacion_id"],
+    )
+
+    respuesta = client.get("/v1/auth/yo", headers={"Authorization": f"Bearer {token_cruzado}"})
     assert respuesta.status_code == 401
