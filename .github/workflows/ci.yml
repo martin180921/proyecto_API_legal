@@ -43,6 +43,18 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Vigilar vulnerabilidades conocidas (pip-audit)
+        # Herramienta de CI, no dependencia de la app: no va en requirements.txt.
+        # Acotado a requirements.txt (no al entorno completo): sin `-r`,
+        # pip-audit audita también pip/setuptools del propio runner, que no
+        # son dependencias de la app y no se arreglan aquí — solo meterían
+        # ruido y acabarían enseñando a ignorar el job en rojo.
+        # pip-audit devuelve código de salida distinto de cero si encuentra una
+        # vulnerabilidad conocida, así que el job falla solo — nadie tiene que
+        # leer el aviso a mano para que cuente.
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
       - name: Crear rol y bases de datos de prueba
         run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f scripts/init-db.sql
       - run: pytest
