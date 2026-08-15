@@ -39,15 +39,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.rate_limit import limite_superado, limpiar, marcar_auditado, registrar_intento
-from app.core.security import (
-    EXPIRACION_TOKEN,
-    ActorActual,
-    crear_token_sesion,
-    hash_contrasena,
-    usuario_actual,
-    verificar_contrasena,
-)
+from app.core.rate_limit import limite_superado, registrar_intento
+from app.core.security import EXPIRACION_TOKEN, ActorActual, hash_contrasena, usuario_actual
 from app.models.organizacion import Organizacion
 from app.models.usuario import Usuario
 from app.schemas.auth import (
@@ -58,6 +51,7 @@ from app.schemas.auth import (
     YoResponse,
 )
 from app.services import auditoria
+from app.services.autenticacion import intentar_login
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -219,92 +213,12 @@ def registro(
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
-    organizacion = db.query(Organizacion).filter_by(slug=payload.organizacion).one_or_none()
-
-    if organizacion is None:
-        # Sin organización no hay `organizacion_id` para el audit log ni para
-        # el contador de rate-limit por-organización. Se rechaza sin dejar
-        # rastro, igual que una contraseña incorrecta — ver docstring.
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-
-    ip = _ip_cliente(request)
-    clave_usuario = f"login:org:{organizacion.id}:email:{payload.email}"
-    clave_ip = f"login:org:{organizacion.id}:ip:{ip}"
-
-    superadas = [clave for clave in (clave_usuario, clave_ip) if limite_superado(clave)]
-    if superadas:
-        # Se audita solo la TRANSICIÓN: la primera vez que una clave cruza el
-        # umbral dentro de la ventana. Antes se escribía una fila por cada
-        # petición bloqueada, así que quien insistiera generaba escrituras
-        # ilimitadas en la única tabla que por diseño no se puede borrar — el
-        # rate-limit no detenía la escritura, la provocaba.
-        #
-        # La lista se materializa a propósito, en vez de un `any(...)` que
-        # cortocircuitaría: las dos claves tienen que quedar marcadas, o la
-        # segunda acabaría auditándose en una petición posterior.
-        nuevas = [clave for clave in superadas if marcar_auditado(clave)]
-        if nuevas:
-            auditoria.registrar(
-                db,
-                organizacion_id=organizacion.id,
-                accion="rate_limit_superado",
-                entidad="login_fallido",
-                detalle={"ip": ip, "email": payload.email},
-            )
-            db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demasiados intentos fallidos. Intenta de nuevo en unos minutos.",
-        )
-
-    usuario = (
-        db.query(Usuario)
-        .filter_by(organizacion_id=organizacion.id, email=payload.email)
-        .one_or_none()
-    )
-
-    if usuario is None or not verificar_contrasena(payload.contrasena, usuario.contrasena_hash):
-        registrar_intento(clave_usuario)
-        registrar_intento(clave_ip)
-        auditoria.registrar(
-            db,
-            organizacion_id=organizacion.id,
-            accion="login_fallido",
-            entidad="login_fallido",
-            # Si el email no existe en esta organización no hay a quién
-            # atribuirlo, pero el intento sigue siendo el dato interesante:
-            # alguien probando correos contra una firma concreta.
-            usuario_id=usuario.id if usuario is not None else None,
-            detalle={"ip": ip, "email": payload.email},
-        )
-        # El 401 también tiene que persistir su evento: sin este commit, la
-        # excepción de abajo se lleva por delante la transacción y el intento
-        # fallido no queda registrado en ninguna parte.
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-
-    # Un acierto borra el historial de fallos: sin esto, cuatro fallos y un
-    # login correcto dejaban al usuario a un solo fallo del bloqueo durante el
-    # resto de la ventana.
-    limpiar(clave_usuario)
-    limpiar(clave_ip)
-
-    auditoria.registrar(
-        db,
-        organizacion_id=organizacion.id,
-        accion="login",
-        entidad="sesion",
-        # Una sesión no es una fila de ninguna tabla: `entidad_id` va vacío,
-        # como en el evento de rate-limit. El actor va en `usuario_id`.
-        entidad_id=None,
-        usuario_id=usuario.id,
-        detalle={"ip": ip},
-    )
-    db.commit()
-
-    token = crear_token_sesion(usuario.id, organizacion.id)
+    # Núcleo compartido con `app/web` (cookie httpOnly, mismo JWT) — ver
+    # `app/services/autenticacion.py`. Mismo comportamiento que antes de la
+    # extracción: 401/429 en los mismos casos, mismos eventos de auditoría.
+    resultado = intentar_login(db, payload.organizacion, payload.email, payload.contrasena, _ip_cliente(request))
     return TokenResponse(
-        access_token=token,
+        access_token=resultado.token,
         expira_en_segundos=int(EXPIRACION_TOKEN.total_seconds()),
     )
 

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block titulo %}Iniciar sesión — API Legal{% endblock %}
+{% block cuerpo %}
+<h1>API Legal</h1>
+<p>Inicia sesión con tu organización.</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="formulario" method="post" action="/login">
+  <label for="organizacion">Organización (slug)</label>
+  <input id="organizacion" name="organizacion" required autofocus>
+
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" required>
+
+  <label for="contrasena">Contraseña</label>
+  <input id="contrasena" name="contrasena" type="password" required>
+
+  <button type="submit">Entrar</button>
+</form>
+{% endblock %}

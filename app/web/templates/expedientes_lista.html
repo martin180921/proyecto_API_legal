@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Expedientes — API Legal{% endblock %}
+{% block cuerpo %}
+<header>
+  <a href="/expedientes">API Legal</a>
+  <nav>
+    <a href="/expedientes/nuevo">+ Nuevo expediente</a>
+    <a href="/logout">Salir</a>
+  </nav>
+</header>
+
+<h1>Expedientes ({{ total }})</h1>
+
+{% if items %}
+<table>
+  <thead>
+    <tr>
+      <th>Radicado</th>
+      <th>Tipo</th>
+      <th>Juzgado</th>
+      <th>Última actuación conocida</th>
+      <th>Estado</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for expediente in items %}
+    <tr class="{{ 'inactivo' if not expediente.activo else '' }}">
+      <td>{{ expediente.radicado }}</td>
+      <td><span class="etiqueta">{{ expediente.tipo_proceso.value }}</span></td>
+      <td>{{ expediente.juzgado or "—" }}</td>
+      <td>{{ expediente.ultima_actuacion_conocida or "—" }}</td>
+      <td>{{ "Activo" if expediente.activo else "Archivado" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="paginacion">
+  {% if hay_anterior %}<a href="/expedientes?offset={{ offset - limite }}">&larr; Anteriores</a>{% endif %}
+  {% if hay_siguiente %}<a href="/expedientes?offset={{ offset + limite }}">Siguientes &rarr;</a>{% endif %}
+</div>
+{% else %}
+<p class="vacio">Todavía no hay expedientes en esta organización.</p>
+{% endif %}
+{% endblock %}

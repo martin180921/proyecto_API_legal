@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}Nuevo expediente — API Legal{% endblock %}
+{% block cuerpo %}
+<header>
+  <a href="/expedientes">API Legal</a>
+  <nav>
+    <a href="/expedientes">Volver al listado</a>
+    <a href="/logout">Salir</a>
+  </nav>
+</header>
+
+<h1>Nuevo expediente</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="formulario" method="post" action="/expedientes/nuevo">
+  <label for="radicado">Radicado (23 dígitos)</label>
+  <input id="radicado" name="radicado" required pattern="\d{23}" maxlength="23" minlength="23"
+         value="{{ valores.get('radicado', '') }}">
+
+  <label for="tipo_proceso">Tipo de proceso</label>
+  <select id="tipo_proceso" name="tipo_proceso" required>
+    {% for tipo in tipos %}
+    <option value="{{ tipo.value }}" {{ "selected" if valores.get('tipo_proceso') == tipo.value else "" }}>{{ tipo.value }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="juzgado">Juzgado</label>
+  <input id="juzgado" name="juzgado" value="{{ valores.get('juzgado', '') }}">
+
+  <label for="despacho">Despacho</label>
+  <input id="despacho" name="despacho" value="{{ valores.get('despacho', '') }}">
+
+  <label for="partes">Partes</label>
+  <textarea id="partes" name="partes" rows="3">{{ valores.get('partes', '') }}</textarea>
+
+  <label for="ultima_actuacion_conocida">Última actuación conocida</label>
+  <textarea id="ultima_actuacion_conocida" name="ultima_actuacion_conocida" rows="2">{{ valores.get('ultima_actuacion_conocida', '') }}</textarea>
+
+  <button type="submit">Crear expediente</button>
+</form>
+{% endblock %}

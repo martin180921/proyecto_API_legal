@@ -6,13 +6,15 @@ desarrollador único, regla 1: "contrato explícito".
 import logging
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.expedientes import router as expedientes_router
 from app.api.v1.health import router as health_router
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.web.auth import NoAutenticadoWeb
+from app.web.router import router as web_router
 
 configure_logging()
 logger = logging.getLogger("api_legal")
@@ -30,6 +32,7 @@ app = FastAPI(
 app.include_router(health_router, prefix=settings.api_v1_prefix)
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(expedientes_router, prefix=settings.api_v1_prefix)
+app.include_router(web_router)
 
 
 @app.middleware("http")
@@ -45,6 +48,13 @@ async def log_requests(request: Request, call_next):
         },
     )
     return response
+
+
+@app.exception_handler(NoAutenticadoWeb)
+async def no_autenticado_web_handler(request: Request, exc: NoAutenticadoWeb) -> RedirectResponse:
+    """Sin cookie de sesión válida en `app/web`: redirige a `/login` en vez
+    del 401 JSON que usa la API — ver `app/web/auth.py`."""
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.exception_handler(Exception)
