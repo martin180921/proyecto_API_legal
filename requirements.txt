@@ -14,3 +14,4 @@ passlib[bcrypt]>=1.7
 # de 72 bytes en el autotest interno de passlib. Fijado tras reproducirlo.
 bcrypt<4.1,>=4.0
 pyjwt>=2.9
+openpyxl>=3.1
