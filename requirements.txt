@@ -6,7 +6,7 @@ pytest>=8.3
 httpx>=0.27
 sqlalchemy>=2.0
 alembic>=1.13
-psycopg[binary]>=3.2
+psycopg[binary]>=3.3.4
 passlib[bcrypt]>=1.7
 # passlib 1.7.4 (última versión, sin releases desde 2020) rompe con bcrypt>=4.1:
 # el módulo perdió el atributo `__about__` que passlib usa para detectar la
