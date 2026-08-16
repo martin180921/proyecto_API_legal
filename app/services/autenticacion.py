@@ -21,7 +21,13 @@ from dataclasses import dataclass
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.rate_limit import limite_superado, limpiar, marcar_auditado, registrar_intento
+from app.core.rate_limit import (
+    LIMITE_INTENTOS_IP_GLOBAL,
+    limite_superado,
+    limpiar,
+    marcar_auditado,
+    registrar_intento,
+)
 from app.core.security import crear_token_sesion, verificar_o_quemar_tiempo
 from app.models.organizacion import Organizacion
 from app.models.usuario import Usuario
@@ -46,14 +52,15 @@ def intentar_login(
     # Comprobada ANTES de resolver el slug, y sin depender de que la
     # organización exista: antes, un slug inexistente se rechazaba con un
     # SELECT (~1ms) sin tocar ningún contador, así que la enumeración de
-    # organizaciones era ilimitada (A.1.2). Consecuencia aceptada a propósito
-    # (Bloque A1, 2026-08-16): para un ataque de una sola IP contra una
-    # organización real, esta clave sube en paralelo exacto con las claves
-    # por-organización de más abajo —mismo umbral, misma ventana— y al
-    # comprobarse aquí, primero, es la que bloquea. El camino con auditoría
-    # de más abajo (clave_usuario/clave_ip) sigue vivo para el caso que esta
-    # clave global no cubre: el mismo email atacado desde IPs distintas.
-    if limite_superado(clave_ip_global):
+    # organizaciones era ilimitada (A.1.2). Con umbral propio, más alto que el
+    # de las claves por-organización (Bloque A1 bis, 2026-08-16,
+    # `app/core/rate_limit.py::LIMITE_INTENTOS_IP_GLOBAL`): esta clave es un
+    # tope de enumeración, no la defensa contra fuerza bruta de una cuenta
+    # concreta — eso lo hacen `clave_usuario`/`clave_ip` de más abajo, y con el
+    # mismo umbral que esta la dejaban inalcanzables en un ataque de una sola
+    # IP contra una organización real, porque las tres suben en el mismo fallo
+    # y la global, comprobada primero, ganaba siempre.
+    if limite_superado(clave_ip_global, limite=LIMITE_INTENTOS_IP_GLOBAL):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Demasiados intentos fallidos. Intenta de nuevo en unos minutos.",

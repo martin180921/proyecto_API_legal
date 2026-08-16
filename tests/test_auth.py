@@ -185,14 +185,17 @@ def test_login_con_organizacion_inexistente_devuelve_401(client):
     assert respuesta.status_code == 401
 
 
-def test_seis_intentos_contra_slug_inexistente_desde_la_misma_ip_devuelve_429_en_el_sexto(client):
-    """Antes del Bloque A1 (A.1.2), el camino de organización inexistente no
-    consumía ningún rate-limit: se rechazaba con un SELECT sin tocar ningún
-    contador, así que la enumeración de slugs era ilimitada. La clave global
-    `login:ip:{ip}` cierra ese hueco."""
+def test_veinte_intentos_contra_slug_inexistente_desde_la_misma_ip_devuelve_429_en_el_veintiuno(client):
+    """Escenario de enumeración. Antes del Bloque A1 (A.1.2), el camino de
+    organización inexistente no consumía ningún rate-limit: se rechazaba con
+    un SELECT sin tocar ningún contador, así que la enumeración de slugs era
+    ilimitada. La clave global `login:ip:{ip}` cierra ese hueco con su propio
+    umbral (`LIMITE_INTENTOS_IP_GLOBAL`, Bloque A1 bis, 2026-08-16), más alto
+    que el de las claves por-organización porque es un tope de enumeración,
+    no la defensa contra fuerza bruta de una cuenta concreta."""
     intento = {"organizacion": "no-existe", "email": "nadie@example.com", "contrasena": "x"}
 
-    for _ in range(rate_limit.LIMITE_INTENTOS):
+    for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL):
         respuesta = client.post("/v1/auth/login", json=intento)
         assert respuesta.status_code == 401
 
@@ -202,18 +205,23 @@ def test_seis_intentos_contra_slug_inexistente_desde_la_misma_ip_devuelve_429_en
 
 def test_login_correcto_tras_fallos_contra_slug_inexistente_limpia_el_contador_global_por_ip(client):
     """Un acierto borra también la clave global por IP, igual que ya hacía con
-    las claves por-organización (arreglo 8 del 2026-08-08). Se prueba fallando
-    primero contra un slug inexistente (para subir `login:ip:{ip}` sin tocar
-    ninguna clave por-organización) y comprobando después que, tras un acierto
-    en una organización real, esa misma IP puede volver a fallar varias veces
-    contra el slug inexistente sin toparse con el 429 del contador viejo."""
+    las claves por-organización (arreglo 8 del 2026-08-08).
+
+    Se construye la cuenta hasta un fallo por debajo del umbral global
+    (`LIMITE_INTENTOS_IP_GLOBAL - 1`) fallando contra un slug inexistente —así
+    no se toca ninguna clave por-organización—, se hace un login correcto en
+    una organización real, y se comprueban dos fallos más contra el slug
+    inexistente. Sin el reinicio, el primero de esos dos completaría el
+    contador viejo (`19 + 1 = 20`) y el segundo toparía con el 429; con el
+    reinicio, los dos siguen devolviendo 401 porque el contador vuelve a
+    empezar de cero."""
     intento_slug_inexistente = {
         "organizacion": "no-existe",
         "email": "nadie@example.com",
         "contrasena": "x",
     }
 
-    for _ in range(rate_limit.LIMITE_INTENTOS - 1):
+    for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL - 1):
         assert client.post("/v1/auth/login", json=intento_slug_inexistente).status_code == 401
 
     registro = _registrar(client).json()
@@ -227,7 +235,7 @@ def test_login_correcto_tras_fallos_contra_slug_inexistente_limpia_el_contador_g
     )
     assert correcto.status_code == 200
 
-    for _ in range(rate_limit.LIMITE_INTENTOS - 1):
+    for _ in range(2):
         assert client.post("/v1/auth/login", json=intento_slug_inexistente).status_code == 401
 
 
@@ -461,32 +469,27 @@ def test_el_detalle_del_audit_log_no_lleva_ni_contrasena_ni_token(client, db_ses
         assert token not in texto
 
 
-def test_login_supera_rate_limit_por_organizacion_desde_ips_distintas_devuelve_429_con_auditoria(
-    client, db_session, monkeypatch
-):
-    """Ataque distribuido: mismo email, IPs distintas. La clave global por IP
-    (`login:ip:{ip}`, Bloque A1) no se satura porque cada petición llega de
-    una IP distinta, así que la que salta es la clave por-organización
-    (`clave_usuario`) — y esa sí puede auditarse: hay `organizacion_id` al que
-    atribuir el evento. Antes del Bloque A1 esta prueba usaba una sola IP;
-    ahora hace falta distribuir el ataque para llegar a este camino, porque
-    con una sola IP el bloqueo global llega antes (ver
-    `test_desde_una_sola_ip_el_bloqueo_global_precede_al_de_organizacion_y_no_audita`)."""
-    monkeypatch.setattr(settings, "app_env", "production")
+def test_login_supera_rate_limit_por_organizacion_devuelve_429_con_auditoria(client, db_session):
+    """Escenario de fuerza bruta contra una organización real, desde una sola
+    IP. Con la clave global en su propio umbral, más alto que el de
+    organización (Bloque A1 bis, 2026-08-16: `LIMITE_INTENTOS_IP_GLOBAL=20` vs
+    `LIMITE_INTENTOS=5`), la clave por-organización (`clave_usuario`/
+    `clave_ip`) vuelve a ser la primera en dispararse en este ataque —el más
+    común en la práctica—, y vuelve a dejar su evento `rate_limit_superado`
+    con `organizacion_id`. Antes de este commit, la clave global (entonces con
+    el mismo umbral que la de organización) se disparaba primero y este
+    evento no se generaba; ver `cc3a773` y la nota de sesión de Bloque A1
+    bis."""
     registro = _registrar(client).json()
     slug = registro["organizacion_slug"]
 
     intento = {"organizacion": slug, "email": "juan.diego@example.com", "contrasena": "mala"}
 
-    for numero in range(rate_limit.LIMITE_INTENTOS):
-        respuesta = client.post(
-            "/v1/auth/login", json=intento, headers={"X-Forwarded-For": f"203.0.113.{numero}"}
-        )
+    for _ in range(rate_limit.LIMITE_INTENTOS):
+        respuesta = client.post("/v1/auth/login", json=intento)
         assert respuesta.status_code == 401
 
-    respuesta_bloqueada = client.post(
-        "/v1/auth/login", json=intento, headers={"X-Forwarded-For": "203.0.113.99"}
-    )
+    respuesta_bloqueada = client.post("/v1/auth/login", json=intento)
     assert respuesta_bloqueada.status_code == 429
 
     # Se filtra por `accion` y no por `entidad`: desde que el login fallido
@@ -501,16 +504,13 @@ def test_login_supera_rate_limit_por_organizacion_desde_ips_distintas_devuelve_4
     assert evento.detalle["email"] == "juan.diego@example.com"
 
 
-def test_desde_una_sola_ip_el_bloqueo_global_precede_al_de_organizacion_y_no_audita(client, db_session):
-    """Consecuencia aceptada a propósito del Bloque A1 (2026-08-16): con una
-    sola IP atacando una organización real, la clave global `login:ip:{ip}`
-    sube en paralelo exacto con las claves por-organización —mismo umbral,
-    misma ventana— y como se comprueba antes de resolver el slug, es la que
-    bloquea primero. En ese punto el código todavía no sabe qué organización
-    es, así que este ataque —el más común en la práctica— deja de generar el
-    evento `rate_limit_superado` por-organización que generaba antes. El
-    camino con auditoría sigue vivo para el caso que la clave global no
-    cubre: el mismo email atacado desde IPs distintas (prueba de arriba)."""
+def test_insistir_tras_el_bloqueo_no_multiplica_los_eventos(client, db_session):
+    """El rate-limit no puede ser un amplificador de escrituras.
+
+    Antes, cada petición bloqueada escribía una fila en `eventos_auditoria`:
+    quien insistiera generaba escrituras ilimitadas en la única tabla que por
+    diseño no se puede borrar. Lo auditable es la transición —esta clave se ha
+    bloqueado—, no cada rebote posterior."""
     registro = _registrar(client).json()
     intento = {
         "organizacion": registro["organizacion_slug"],
@@ -521,48 +521,8 @@ def test_desde_una_sola_ip_el_bloqueo_global_precede_al_de_organizacion_y_no_aud
     for _ in range(rate_limit.LIMITE_INTENTOS):
         assert client.post("/v1/auth/login", json=intento).status_code == 401
 
-    assert client.post("/v1/auth/login", json=intento).status_code == 429
-
-    eventos = (
-        db_session.query(EventoAuditoria)
-        .filter_by(organizacion_id=registro["organizacion_id"], accion="rate_limit_superado")
-        .all()
-    )
-    assert eventos == []
-
-
-def test_insistir_tras_el_bloqueo_no_multiplica_los_eventos(client, db_session, monkeypatch):
-    """El rate-limit no puede ser un amplificador de escrituras.
-
-    Antes, cada petición bloqueada escribía una fila en `eventos_auditoria`:
-    quien insistiera generaba escrituras ilimitadas en la única tabla que por
-    diseño no se puede borrar. Lo auditable es la transición —esta clave se ha
-    bloqueado—, no cada rebote posterior.
-
-    IPs distintas en la fase de acumulación (Bloque A1: con una sola IP el
-    bloqueo global llegaría antes que el de organización, y no hay nada que
-    auditar en ese camino). Insistir después reutiliza una IP ya vista, cuyo
-    contador global sigue muy por debajo del límite, así que quien seguimos
-    ejercitando es `marcar_auditado` sobre la clave por-organización."""
-    monkeypatch.setattr(settings, "app_env", "production")
-    registro = _registrar(client).json()
-    intento = {
-        "organizacion": registro["organizacion_slug"],
-        "email": "juan.diego@example.com",
-        "contrasena": "mala",
-    }
-
-    for numero in range(rate_limit.LIMITE_INTENTOS):
-        respuesta = client.post(
-            "/v1/auth/login", json=intento, headers={"X-Forwarded-For": f"203.0.113.{numero}"}
-        )
-        assert respuesta.status_code == 401
-
     for _ in range(10):
-        respuesta = client.post(
-            "/v1/auth/login", json=intento, headers={"X-Forwarded-For": "203.0.113.0"}
-        )
-        assert respuesta.status_code == 429
+        assert client.post("/v1/auth/login", json=intento).status_code == 429
 
     eventos = (
         db_session.query(EventoAuditoria)

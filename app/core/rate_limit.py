@@ -16,6 +16,16 @@ from threading import Lock
 VENTANA_SEGUNDOS = 15 * 60
 LIMITE_INTENTOS = 5
 
+# La clave global por IP no hace el mismo trabajo que las por-organización y
+# por eso no lleva el mismo número. Las de organización defienden una cuenta
+# concreta de la fuerza bruta (5). Esta es un tope de enumeración: existe para
+# que nadie barra slugs indefinidamente por el camino que no consumía contador.
+# Con 5 se disparaba antes que las de organización —que se incrementan en el
+# mismo fallo— y las dejaba inalcanzables, además de bloquear entre
+# organizaciones a todo un despacho que comparte IP pública. Decidido por
+# Martin el 2026-08-16 (Bloque A1 bis).
+LIMITE_INTENTOS_IP_GLOBAL = 20
+
 _intentos: dict[str, list[float]] = defaultdict(list)
 
 # Claves cuyo cruce del umbral ya se auditó en la ventana actual. Se guarda el
@@ -30,13 +40,15 @@ def _vigentes(clave: str, ahora: float) -> list[float]:
     return [marca for marca in _intentos[clave] if ahora - marca < VENTANA_SEGUNDOS]
 
 
-def limite_superado(clave: str) -> bool:
-    """True si `clave` ya acumuló 5 intentos fallidos en los últimos 15 minutos."""
+def limite_superado(clave: str, limite: int = LIMITE_INTENTOS) -> bool:
+    """True si `clave` ya acumuló `limite` intentos fallidos en los últimos 15
+    minutos. Por defecto, los 5 de siempre; `LIMITE_INTENTOS_IP_GLOBAL` es el
+    único llamador que pasa otro valor."""
     ahora = time.monotonic()
     with _candado:
         vigentes = _vigentes(clave, ahora)
         _intentos[clave] = vigentes
-        return len(vigentes) >= LIMITE_INTENTOS
+        return len(vigentes) >= limite
 
 
 def registrar_intento(clave: str) -> int:
