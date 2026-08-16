@@ -314,6 +314,32 @@ def test_login_correcto_deja_exactamente_un_evento_de_auditoria(client, db_sessi
     assert evento.detalle["ip"]
 
 
+def test_el_evento_de_login_fallido_lleva_el_request_id_de_su_respuesta(client, db_session):
+    """A.3.3 (Bloque A2): el `request_id` que el middleware pone en la
+    cabecera `X-Request-ID` es el mismo que `registrar` añade a `detalle` vía
+    el `ContextVar` de `app/core/contexto.py`. Es la prueba que atrapa una
+    propagación de `contextvars` rota — si el middleware fijara el valor
+    dentro de una tarea que Starlette no comparte con el endpoint, esta
+    aserción fallaría aunque `X-Request-ID` siguiera presente en la cabecera."""
+    registro = _registrar(client).json()
+
+    respuesta = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": "juan.diego@example.com",
+            "contrasena": "contrasena-equivocada",
+        },
+    )
+    assert respuesta.status_code == 401
+    request_id = respuesta.headers["X-Request-ID"]
+    assert request_id
+
+    eventos = _eventos_de_login(db_session, registro["organizacion_id"])
+    assert len(eventos) == 1
+    assert eventos[0].detalle["request_id"] == request_id
+
+
 def test_login_fallido_deja_exactamente_un_evento_con_el_usuario(client, db_session):
     registro = _registrar(client).json()
 
