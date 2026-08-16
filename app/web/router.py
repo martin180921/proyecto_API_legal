@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.red import ip_cliente
 from app.models.expediente import TipoProceso
 from app.schemas.expediente import ExpedienteCrear
 from app.services import expedientes
@@ -51,7 +52,7 @@ def procesar_login(
     contrasena: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    ip = request.client.host if request.client else "desconocida"
+    ip = ip_cliente(request)
     try:
         resultado = intentar_login(db, organizacion, email, contrasena, ip)
     except HTTPException as error:

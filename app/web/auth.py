@@ -42,7 +42,7 @@ def actor_desde_cookie(request: Request) -> ActorActual:
 def poner_cookie_sesion(response, token: str) -> None:
     """`secure` solo en producción: en local (HTTP, sin TLS) el navegador
     descartaría una cookie `secure` y nadie podría loguearse — mismo criterio
-    de entorno que ya usa `_ip_cliente` en `app/api/v1/auth.py`."""
+    de entorno que ya usa `ip_cliente` en `app/core/red.py`."""
     response.set_cookie(
         NOMBRE_COOKIE,
         token,

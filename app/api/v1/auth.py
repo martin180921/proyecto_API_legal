@@ -29,7 +29,6 @@ organización a la que atribuirlo. Se responde 401 sin más, igual que con
 credenciales inválidas: no se distingue "organización inexistente" de
 "contraseña incorrecta" en la respuesta, para no revelar qué slugs existen.
 """
-import ipaddress
 import re
 import secrets
 
@@ -40,6 +39,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.rate_limit import limite_superado, registrar_intento
+from app.core.red import ip_cliente
 from app.core.security import EXPIRACION_TOKEN, ActorActual, hash_contrasena, usuario_actual
 from app.models.organizacion import Organizacion
 from app.models.usuario import Usuario
@@ -74,41 +74,6 @@ def _generar_slug_unico(db: Session, nombre: str) -> str:
     while db.query(Organizacion).filter_by(slug=slug).one_or_none() is not None:
         slug = f"{base}-{secrets.token_hex(2)}"
     return slug
-
-
-def _ip_cliente(request: Request) -> str:
-    """La IP del cliente de verdad, no la del proxy que tiene delante.
-
-    En Railway `request.client.host` devuelve la IP del *edge*, la misma para
-    todo el tráfico. Con eso, la clave `login:org:<id>:ip:<ip>` se colapsa en
-    **una sola por organización**: 5 fallos de cualquiera dejan fuera a toda la
-    firma durante 15 minutos, y no filtran a ningún atacante. Una protección
-    que se cree activa y no lo está es peor que no tenerla.
-
-    EL SUPUESTO, que hay que revisar el día que cambie el despliegue: confiar
-    en `X-Forwarded-For` **solo es válido porque en Railway todo el tráfico
-    entra por el proxy**, que reescribe la cabecera. Si algún día se expone el
-    puerto de la aplicación directamente, cualquier cliente puede falsificarla
-    —y con ella saltarse el rate-limit o ensuciar el audit log— y esto deja de
-    valer. Por eso solo se mira en `production`: en local y en CI no hay proxy
-    delante, así que la cabecera solo podría venir de quien hace la petición.
-
-    Se toma el **primer** valor: el proxy añade por la derecha, así que el de
-    más a la izquierda es el cliente original.
-    """
-    directa = request.client.host if request.client else "desconocida"
-
-    if settings.app_env != "production":
-        return directa
-
-    primero = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    try:
-        # Validar además de recortar: si la cabecera falta o trae basura, se
-        # cae a la IP directa en vez de meter texto arbitrario de la petición
-        # en una clave de rate-limit y en el `detalle` del audit log.
-        return str(ipaddress.ip_address(primero))
-    except ValueError:
-        return directa
 
 
 def _crear_organizacion_y_usuario(
@@ -174,7 +139,7 @@ def registro(
     # `eventos_auditoria.organizacion_id` es NOT NULL y aquí todavía no hay
     # ninguna organización a la que atribuirlo — el mismo razonamiento que el
     # del slug inexistente en el login (ver docstring del módulo).
-    clave_registro = f"registro:ip:{_ip_cliente(request)}"
+    clave_registro = f"registro:ip:{ip_cliente(request)}"
     if limite_superado(clave_registro):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -216,7 +181,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     # Núcleo compartido con `app/web` (cookie httpOnly, mismo JWT) — ver
     # `app/services/autenticacion.py`. Mismo comportamiento que antes de la
     # extracción: 401/429 en los mismos casos, mismos eventos de auditoría.
-    resultado = intentar_login(db, payload.organizacion, payload.email, payload.contrasena, _ip_cliente(request))
+    resultado = intentar_login(db, payload.organizacion, payload.email, payload.contrasena, ip_cliente(request))
     return TokenResponse(
         access_token=resultado.token,
         expira_en_segundos=int(EXPIRACION_TOKEN.total_seconds()),

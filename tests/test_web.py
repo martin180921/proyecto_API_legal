@@ -28,11 +28,12 @@ def _registrar(client, nombre_organizacion="Bufete Infante", email="juan.diego@e
     return registro, contrasena
 
 
-def _login_web(client, slug, email, contrasena):
+def _login_web(client, slug, email, contrasena, cabeceras=None):
     return client.post(
         "/login",
         data={"organizacion": slug, "email": email, "contrasena": contrasena},
         follow_redirects=False,
+        headers=cabeceras or {},
     )
 
 
@@ -98,6 +99,32 @@ def test_login_web_correcto_pone_cookie_y_redirige_a_expedientes(client):
     assert respuesta.status_code == 303
     assert respuesta.headers["location"] == "/expedientes"
     assert "sesion" in respuesta.cookies
+
+
+def test_en_produccion_login_web_usa_ip_de_x_forwarded_for(client, db_session, monkeypatch):
+    """`app/web` reintrodujo el 2026-08-15 el bug de la IP del proxy que el
+    arreglo #6 (2026-08-08) ya había cerrado en la API: `request.client.host`
+    en Railway es la IP del *edge*, la misma para todo el tráfico, así que el
+    rate-limit y el audit log de la web quedaban colapsados en una sola clave
+    por organización. Mismo patrón que
+    `test_auth.py::test_en_produccion_se_usa_la_ip_de_x_forwarded_for`."""
+    monkeypatch.setattr(settings, "app_env", "production")
+    registro, _ = _registrar(client)
+
+    _login_web(
+        client,
+        registro["organizacion_slug"],
+        "juan.diego@example.com",
+        "mala",
+        cabeceras={"X-Forwarded-For": "203.0.113.7"},
+    )
+
+    evento = (
+        db_session.query(EventoAuditoria)
+        .filter_by(organizacion_id=registro["organizacion_id"], accion="login_fallido")
+        .one()
+    )
+    assert evento.detalle["ip"] == "203.0.113.7"
 
 
 def test_logout_borra_la_cookie_y_expedientes_vuelve_a_exigir_login(client):
