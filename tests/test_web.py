@@ -130,13 +130,22 @@ def test_en_produccion_login_web_usa_ip_de_x_forwarded_for(client, db_session, m
 def test_logout_borra_la_cookie_y_expedientes_vuelve_a_exigir_login(client):
     _registrar_y_loguear_web(client)
 
-    respuesta = client.get("/logout", follow_redirects=False)
+    respuesta = client.post("/logout", follow_redirects=False)
     assert respuesta.status_code == 303
     assert respuesta.headers["location"] == "/login"
 
     tras_logout = client.get("/expedientes", follow_redirects=False)
     assert tras_logout.status_code == 303
     assert tras_logout.headers["location"] == "/login"
+
+
+def test_get_logout_devuelve_405(client):
+    """Cerrar sesión con un GET es CSRF-able con un `<img src="…/logout">` en
+    cualquier página o correo — un GET no debe mutar estado."""
+    _registrar_y_loguear_web(client)
+
+    respuesta = client.get("/logout", follow_redirects=False)
+    assert respuesta.status_code == 405
 
 
 # --- Lista de expedientes ----------------------------------------------------

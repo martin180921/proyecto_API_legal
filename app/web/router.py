@@ -65,7 +65,7 @@ def procesar_login(
     return respuesta
 
 
-@router.get("/logout", include_in_schema=False)
+@router.post("/logout", include_in_schema=False)
 def logout() -> RedirectResponse:
     respuesta = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     borrar_cookie_sesion(respuesta)
