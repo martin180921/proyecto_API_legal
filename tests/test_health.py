@@ -1,6 +1,10 @@
 """Camino feliz + error principal, por Definition of Done del proyecto."""
-from fastapi.testclient import TestClient
+import json
 
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
+
+from app.core.db import get_db
 from app.main import app
 
 client = TestClient(app)
@@ -35,3 +39,48 @@ def test_dos_peticiones_traen_x_request_id_distintos():
     primera = client.get("/v1/health")
     segunda = client.get("/v1/health")
     assert primera.headers["X-Request-ID"] != segunda.headers["X-Request-ID"]
+
+
+def test_health_ready_ok():
+    """Camino feliz: /v1/health/ready toca la base de verdad (Postgres de
+    pruebas) y responde 200. A diferencia de /v1/health, este es el endpoint
+    que debe vigilar Railway (A.1.4)."""
+    response = client.get("/v1/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "db": "ok"}
+
+
+def test_health_ready_devuelve_503_sin_filtrar_nada_de_la_conexion_si_la_base_falla():
+    """Error principal: si Postgres falla, 503 con un mensaje genérico — ni la
+    excepción de SQLAlchemy ni ningún fragmento de `DATABASE_URL` (usuario,
+    host, contraseña) puede llegar al cuerpo, porque este endpoint es
+    público. Se simula sustituyendo `get_db`, no tumbando la Postgres de
+    pruebas — eso rompería el resto de la suite, que sí la necesita viva."""
+
+    def _get_db_que_falla():
+        class _SesionQueFalla:
+            def execute(self, *args, **kwargs):
+                raise OperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception(
+                        "conexión rechazada a postgresql://api_legal_app:secreto-de-prueba@db-interna:5432/api_legal"
+                    ),
+                )
+
+        yield _SesionQueFalla()
+
+    app.dependency_overrides[get_db] = _get_db_que_falla
+    try:
+        response = client.get("/v1/health/ready")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 503
+    cuerpo = response.json()
+    assert cuerpo == {"status": "error", "db": "error"}
+
+    texto = json.dumps(cuerpo, ensure_ascii=False)
+    assert "secreto-de-prueba" not in texto
+    assert "postgresql://" not in texto
+    assert "db-interna" not in texto

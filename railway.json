@@ -3,7 +3,7 @@
   "deploy": {
     "preDeployCommand": ["alembic upgrade head"],
     "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
-    "healthcheckPath": "/v1/health",
+    "healthcheckPath": "/v1/health/ready",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE"
   }
