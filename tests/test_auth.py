@@ -192,12 +192,25 @@ def test_veinte_intentos_contra_slug_inexistente_desde_la_misma_ip_devuelve_429_
     ilimitada. La clave global `login:ip:{ip}` cierra ese hueco con su propio
     umbral (`LIMITE_INTENTOS_IP_GLOBAL`, Bloque A1 bis, 2026-08-16), más alto
     que el de las claves por-organización porque es un tope de enumeración,
-    no la defensa contra fuerza bruta de una cuenta concreta."""
-    intento = {"organizacion": "no-existe", "email": "nadie@example.com", "contrasena": "x"}
+    no la defensa contra fuerza bruta de una cuenta concreta.
 
-    for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL):
-        respuesta = client.post("/v1/auth/login", json=intento)
-        assert respuesta.status_code == 401
+    Lo que prueba este test es que el endpoint bloquea en el umbral
+    configurado, no que bcrypt corre veinte veces contra el hash señuelo
+    (eso ya lo prueba
+    `test_verificar_o_quemar_tiempo_y_su_uso_en_organizacion_inexistente`). Por
+    eso se ceba el contador llamando directamente a `registrar_intento` en vez
+    de hacer 20 peticiones HTTP reales, y solo se hacen las dos que importan:
+    la 20 (401) y la 21 (429). Acopla la prueba al formato interno de la clave
+    (`login:ip:{ip}`, definido en `intentar_login`) — acoplamiento aceptado a
+    propósito, igual que la nota de A2 sobre esta misma prueba."""
+    intento = {"organizacion": "no-existe", "email": "nadie@example.com", "contrasena": "x"}
+    ip = "testclient"  # lo que expone request.client.host en TestClient
+
+    for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL - 1):
+        rate_limit.registrar_intento(f"login:ip:{ip}")
+
+    respuesta = client.post("/v1/auth/login", json=intento)
+    assert respuesta.status_code == 401
 
     bloqueada = client.post("/v1/auth/login", json=intento)
     assert bloqueada.status_code == 429
