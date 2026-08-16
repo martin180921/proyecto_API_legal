@@ -9,7 +9,7 @@ de presentación distinta.
 """
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, Depends, Form, Query, Request, status
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -75,7 +75,7 @@ def logout() -> RedirectResponse:
 @router.get("/expedientes", response_class=HTMLResponse, include_in_schema=False)
 def lista_expedientes(
     request: Request,
-    offset: int = 0,
+    offset: int = Query(default=0, ge=0),
     actor=Depends(actor_desde_cookie),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:

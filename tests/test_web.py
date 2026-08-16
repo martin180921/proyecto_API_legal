@@ -166,6 +166,17 @@ def test_lista_de_expedientes_no_muestra_los_de_otra_organizacion(client):
     assert "Expedientes (0)" in respuesta.text
 
 
+def test_lista_de_expedientes_con_offset_negativo_devuelve_422(client):
+    """La API ya valida `offset` (`Query(default=0, ge=0)`); la web no lo
+    hacía, así que `offset=-1` llegaba a `.offset(-1)`, Postgres lo rechazaba
+    y el abogado veía el JSON genérico de `app/main.py` en medio de una
+    pantalla HTML."""
+    _registrar_y_loguear_web(client)
+
+    respuesta = client.get("/expedientes?offset=-1")
+    assert respuesta.status_code == 422
+
+
 # --- Alta de expediente -------------------------------------------------------
 
 
