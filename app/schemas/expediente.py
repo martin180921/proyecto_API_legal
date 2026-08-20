@@ -20,9 +20,9 @@ class ExpedienteCrear(BaseModel):
     radicado: str = Field(min_length=23, max_length=23)
     juzgado: str | None = Field(default=None, max_length=255)
     despacho: str | None = Field(default=None, max_length=255)
-    partes: str | None = None
+    partes: str | None = Field(default=None, max_length=10_000)
     tipo_proceso: TipoProceso
-    ultima_actuacion_conocida: str | None = None
+    ultima_actuacion_conocida: str | None = Field(default=None, max_length=10_000)
 
     @field_validator("radicado")
     @classmethod
@@ -37,9 +37,9 @@ class ExpedienteActualizar(BaseModel):
     radicado: str | None = Field(default=None, min_length=23, max_length=23)
     juzgado: str | None = Field(default=None, max_length=255)
     despacho: str | None = Field(default=None, max_length=255)
-    partes: str | None = None
+    partes: str | None = Field(default=None, max_length=10_000)
     tipo_proceso: TipoProceso | None = None
-    ultima_actuacion_conocida: str | None = None
+    ultima_actuacion_conocida: str | None = Field(default=None, max_length=10_000)
 
     @field_validator("radicado")
     @classmethod

@@ -93,6 +93,34 @@ def test_crear_expediente_con_radicado_invalido_devuelve_422(client, radicado):
     assert respuesta.status_code == 422
 
 
+def test_crear_expediente_con_partes_de_10000_caracteres_pasa(client):
+    """Cota exacta (A.3.6): 10.000 caracteres, el límite mismo, sigue
+    aceptándose."""
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.post(
+        "/v1/expedientes", json=_payload(partes="x" * 10_000), headers=cabeceras
+    )
+
+    assert respuesta.status_code == 201
+
+
+@pytest.mark.parametrize("campo", ["partes", "ultima_actuacion_conocida"])
+def test_crear_expediente_con_texto_de_10001_caracteres_devuelve_422(client, campo):
+    """A.3.6: `partes` y `ultima_actuacion_conocida` eran `Text` sin
+    `max_length` ni en Pydantic ni en la base — entrada no acotada que un
+    usuario autenticado podía llenar con megabytes. El tope vive en la
+    frontera de la aplicación (Pydantic); la columna `Text` de Postgres no
+    cambia."""
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.post(
+        "/v1/expedientes", json=_payload(**{campo: "x" * 10_001}), headers=cabeceras
+    )
+
+    assert respuesta.status_code == 422
+
+
 def test_crear_expediente_con_radicado_duplicado_en_la_misma_organizacion_devuelve_409(client):
     _, cabeceras = _registrar_y_loguear(client)
     assert client.post("/v1/expedientes", json=_payload(), headers=cabeceras).status_code == 201
