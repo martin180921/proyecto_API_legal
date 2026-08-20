@@ -8,7 +8,7 @@ import time
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.expedientes import router as expedientes_router
@@ -85,10 +85,34 @@ async def no_autenticado_web_handler(request: Request, exc: NoAutenticadoWeb) ->
     return RedirectResponse(url="/login", status_code=303)
 
 
+_PAGINA_ERROR_WEB = """<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Error</title></head>
+<body>
+<h1>Ha ocurrido un error</h1>
+<p>Algo ha salido mal al procesar tu solicitud. Vuelve a intentarlo en unos minutos.</p>
+</body>
+</html>
+"""
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    """JSON en `/v1` (contrato de la API); una página HTML mínima en el
+    resto (`app/web`, montada sin prefijo): un error ahí no debe enseñarle
+    JSON crudo al abogado. `/docs`, `/redoc` y `/openapi.json` no empiezan
+    por `settings.api_v1_prefix` y caen del lado HTML — decisión tomada con
+    Martin el 2026-08-20 (Bloque A4): un 500 ahí es rarísimo (son endpoints
+    casi estáticos de FastAPI) y no vale la pena una segunda condición.
+
+    La excepción real —mensaje, tipo, traceback— nunca sale de aquí: solo va
+    al log, con el mismo criterio que ya seguía este handler antes de
+    discriminar por superficie.
+    """
     logger.error(
         "unhandled_exception",
         extra={"path": request.url.path, "error": str(exc)},
     )
-    return JSONResponse(status_code=500, content={"detail": "Error interno"})
+    if request.url.path.startswith(settings.api_v1_prefix):
+        return JSONResponse(status_code=500, content={"detail": "Error interno"})
+    return HTMLResponse(status_code=500, content=_PAGINA_ERROR_WEB)
