@@ -10,7 +10,6 @@ ellos y hace falta Redis o una tabla — no antes, sería sobre-ingeniería para
 un bufete.
 """
 import time
-from collections import defaultdict
 from threading import Lock
 
 VENTANA_SEGUNDOS = 15 * 60
@@ -26,7 +25,7 @@ LIMITE_INTENTOS = 5
 # Martin el 2026-08-16 (Bloque A1 bis).
 LIMITE_INTENTOS_IP_GLOBAL = 20
 
-_intentos: dict[str, list[float]] = defaultdict(list)
+_intentos: dict[str, list[float]] = {}
 
 # Claves cuyo cruce del umbral ya se auditó en la ventana actual. Se guarda el
 # instante de la marca para poder caducarla con el mismo criterio que el
@@ -37,7 +36,12 @@ _candado = Lock()
 
 
 def _vigentes(clave: str, ahora: float) -> list[float]:
-    return [marca for marca in _intentos[clave] if ahora - marca < VENTANA_SEGUNDOS]
+    """`.get(clave, [])`, no `_intentos[clave]`: con un `dict` normal (ya no
+    `defaultdict`), leer una clave ausente no debe crearla. Antes sí la creaba
+    — toda clave vista alguna vez (cada IP, cada email probado) dejaba un
+    hueco permanente en el diccionario, incluso caducada la ventana (A.3.8).
+    """
+    return [marca for marca in _intentos.get(clave, []) if ahora - marca < VENTANA_SEGUNDOS]
 
 
 def limite_superado(clave: str, limite: int = LIMITE_INTENTOS) -> bool:
