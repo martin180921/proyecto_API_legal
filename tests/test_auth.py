@@ -139,6 +139,34 @@ def test_colision_de_slug_devuelve_409_y_deja_la_sesion_utilizable(client, db_se
     assert tercero.status_code == 201
 
 
+def test_generar_slug_unico_agota_los_intentos_y_devuelve_500(client, db_session, monkeypatch):
+    """A.3.4: `_generar_slug_unico` era un `while` sin tope — si `token_hex`
+    repitiera candidato, el bucle no tenía salida. Se fuerza la colisión
+    fijando tanto `_slugify` (mismo `base` siempre) como `secrets.token_hex`
+    (mismo sufijo siempre) y pre-creando las dos organizaciones con las que
+    va a chocar cada candidato. El bucle debe rendirse en
+    `MAXIMO_INTENTOS_SLUG` intentos con un 500, no colgarse."""
+    llamadas = []
+
+    def _token_hex_fijo(n):
+        llamadas.append(n)
+        return "aaaa"
+
+    monkeypatch.setattr(auth, "_slugify", lambda texto: "bufete-fijo")
+    monkeypatch.setattr(auth.secrets, "token_hex", _token_hex_fijo)
+
+    db_session.add(Organizacion(nombre="Ya existe", slug="bufete-fijo"))
+    db_session.add(Organizacion(nombre="Ya existe también", slug="bufete-fijo-aaaa"))
+    db_session.commit()
+
+    respuesta = _registrar(client, nombre_organizacion="Cualquiera")
+
+    assert respuesta.status_code == 500
+    # Un candidato generado por intento agotado, ni uno más: es la prueba de
+    # que el bucle termina en el tope y no sigue reintentando indefinidamente.
+    assert len(llamadas) == auth.MAXIMO_INTENTOS_SLUG
+
+
 def test_registro_con_nombre_repetido_genera_slug_distinto(client):
     primero = _registrar(client, email="uno@example.com").json()
     segundo = _registrar(client, email="dos@example.com").json()

@@ -29,6 +29,7 @@ organización a la que atribuirlo. Se responde 401 sin más, igual que con
 credenciales inválidas: no se distingue "organización inexistente" de
 "contraseña incorrecta" en la respuesta, para no revelar qué slugs existen.
 """
+import logging
 import re
 import secrets
 
@@ -54,6 +55,7 @@ from app.services import auditoria
 from app.services.autenticacion import intentar_login
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger("api_legal")
 
 # Tope de reintentos ante una colisión de slug. Con tres ya se ha probado un
 # sufijo aleatorio nuevo dos veces; si aún choca, no es concurrencia, es otra
@@ -69,10 +71,23 @@ def _slugify(texto: str) -> str:
 
 
 def _generar_slug_unico(db: Session, nombre: str) -> str:
+    """Reutiliza `MAXIMO_INTENTOS_SLUG` también como tope de este bucle: es un
+    número distinto de problema (aquí no hace falta concurrencia, solo que
+    `token_hex` repita), pero un mismo orden de magnitud de intentos es
+    razonable para los dos, y no vale la pena una segunda constante para eso.
+    """
     base = _slugify(nombre)
     slug = base
+    intentos = 0
     while db.query(Organizacion).filter_by(slug=slug).one_or_none() is not None:
-        slug = f"{base}-{secrets.token_hex(2)}"
+        if intentos >= MAXIMO_INTENTOS_SLUG:
+            logger.error("colision_espacio_de_slugs", extra={"nombre": nombre})
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No se pudo generar un identificador único para la organización.",
+            )
+        slug = f"{base}-{secrets.token_hex(4)}"
+        intentos += 1
     return slug
 
 
