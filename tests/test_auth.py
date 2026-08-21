@@ -26,11 +26,18 @@ def _registro_abierto(monkeypatch):
     monkeypatch.setattr(settings, "registro_abierto", True)
 
 
-def _registrar(client, nombre_organizacion="Bufete Infante", email="juan.diego@example.com", contrasena="clave-larga-1"):
+def _registrar(
+    client,
+    nombre_organizacion="Bufete Infante",
+    email="juan.diego@example.com",
+    contrasena="clave-larga-1",
+    nombre="Juan Diego Infante",
+):
     return client.post(
         "/v1/auth/registro",
         json={
             "nombre_organizacion": nombre_organizacion,
+            "nombre": nombre,
             "email": email,
             "contrasena": contrasena,
         },

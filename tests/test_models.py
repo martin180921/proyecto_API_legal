@@ -18,6 +18,7 @@ def test_crear_organizacion_y_usuario(db_session):
     usuario = Usuario(
         organizacion_id=org.id,
         email="juan.diego@example.com",
+        nombre="Juan Diego Infante",
         contrasena_hash="hash-de-prueba",
     )
     db_session.add(usuario)
@@ -31,7 +32,7 @@ def test_crear_organizacion_y_usuario(db_session):
 
 
 def test_usuario_sin_organizacion_falla(db_session):
-    usuario = Usuario(email="sin.org@example.com", contrasena_hash="hash-de-prueba")
+    usuario = Usuario(email="sin.org@example.com", nombre="Nadie", contrasena_hash="hash-de-prueba")
     db_session.add(usuario)
     with pytest.raises(IntegrityError):
         db_session.flush()
@@ -44,6 +45,7 @@ def test_organizacion_inexistente_falla(db_session):
     usuario = Usuario(
         organizacion_id=uuid.uuid4(),  # no existe ninguna organización con este id
         email="huerfano@example.com",
+        nombre="Huérfano",
         contrasena_hash="hash-de-prueba",
     )
     db_session.add(usuario)
@@ -57,12 +59,12 @@ def test_email_duplicado_en_la_misma_organizacion_falla(db_session):
     db_session.flush()
 
     db_session.add(
-        Usuario(organizacion_id=org.id, email="repetido@example.com", contrasena_hash="a")
+        Usuario(organizacion_id=org.id, email="repetido@example.com", nombre="Uno", contrasena_hash="a")
     )
     db_session.flush()
 
     db_session.add(
-        Usuario(organizacion_id=org.id, email="repetido@example.com", contrasena_hash="b")
+        Usuario(organizacion_id=org.id, email="repetido@example.com", nombre="Dos", contrasena_hash="b")
     )
     with pytest.raises(IntegrityError):
         db_session.flush()
@@ -79,8 +81,8 @@ def test_mismo_email_en_dos_organizaciones_es_valido(db_session):
 
     db_session.add_all(
         [
-            Usuario(organizacion_id=una.id, email="compartido@example.com", contrasena_hash="a"),
-            Usuario(organizacion_id=otra.id, email="compartido@example.com", contrasena_hash="b"),
+            Usuario(organizacion_id=una.id, email="compartido@example.com", nombre="Una", contrasena_hash="a"),
+            Usuario(organizacion_id=otra.id, email="compartido@example.com", nombre="Otra", contrasena_hash="b"),
         ]
     )
     db_session.flush()

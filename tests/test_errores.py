@@ -44,6 +44,7 @@ def _registrar(client, nombre_organizacion="Bufete Infante", email="juan.diego@e
         "/v1/auth/registro",
         json={
             "nombre_organizacion": nombre_organizacion,
+            "nombre": "Juan Diego Infante",
             "email": email,
             "contrasena": contrasena,
         },

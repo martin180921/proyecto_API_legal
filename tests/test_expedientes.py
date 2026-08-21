@@ -1,13 +1,16 @@
 """`/v1/expedientes`: camino feliz y error principal de cada endpoint,
-validación del radicado, y prueba cruzada de tenancy (parada P3)."""
+validación del identificador, y prueba cruzada de tenancy (parada P3)."""
+import uuid
+
 import pytest
 
 from app.core.config import settings
 from app.models.evento_auditoria import EventoAuditoria
 from app.models.expediente import Expediente
+from app.models.usuario import Usuario
 
-RADICADO_VALIDO = "12345678901234567890123"
-RADICADO_VALIDO_2 = "98765432109876543210987"
+IDENTIFICADOR_VALIDO = "12345678901234567890123"
+IDENTIFICADOR_VALIDO_2 = "98765432109876543210987"
 
 
 @pytest.fixture(autouse=True)
@@ -23,6 +26,7 @@ def _registrar_y_loguear(
         "/v1/auth/registro",
         json={
             "nombre_organizacion": nombre_organizacion,
+            "nombre": "Juan Diego Infante",
             "email": email,
             "contrasena": contrasena,
         },
@@ -34,14 +38,16 @@ def _registrar_y_loguear(
     return registro, {"Authorization": f"Bearer {token}"}
 
 
-def _payload(radicado=RADICADO_VALIDO, **overrides):
+def _payload(identificador=IDENTIFICADOR_VALIDO, **overrides):
     payload = {
-        "radicado": radicado,
+        "identificador": identificador,
+        "tipo_identificador": "radicado_unificado",
+        "seguimiento": "automatico",
         "juzgado": "Juzgado Primero Civil del Circuito",
         "despacho": "Despacho 001",
         "partes": "Demandante vs Demandado",
         "tipo_proceso": "civil",
-        "ultima_actuacion_conocida": "Auto admisorio",
+        "ultima_actuacion_al_importar": "Auto admisorio",
     }
     payload.update(overrides)
     return payload
@@ -57,7 +63,9 @@ def test_crear_expediente_devuelve_201_con_auditoria(client, db_session):
 
     assert respuesta.status_code == 201
     cuerpo = respuesta.json()
-    assert cuerpo["radicado"] == RADICADO_VALIDO
+    assert cuerpo["identificador"] == IDENTIFICADOR_VALIDO
+    assert cuerpo["tipo_identificador"] == "radicado_unificado"
+    assert cuerpo["seguimiento"] == "automatico"
     assert cuerpo["tipo_proceso"] == "civil"
     assert cuerpo["activo"] is True
 
@@ -78,19 +86,63 @@ def test_crear_expediente_sin_token_devuelve_401(client):
 
 
 @pytest.mark.parametrize(
-    "radicado",
+    "identificador",
     [
         "123",  # demasiado corto
         "1234567890123456789012a",  # no numérico
         "123456789012345678901234",  # 24 dígitos, uno de más
+        "1234567890123456789012",  # 22 dígitos, uno de menos
     ],
 )
-def test_crear_expediente_con_radicado_invalido_devuelve_422(client, radicado):
+def test_crear_expediente_radicado_unificado_con_identificador_invalido_devuelve_422(client, identificador):
+    """B.1: la CHECK de 23 dígitos sigue vigente para `radicado_unificado`."""
     _, cabeceras = _registrar_y_loguear(client)
 
-    respuesta = client.post("/v1/expedientes", json=_payload(radicado=radicado), headers=cabeceras)
+    respuesta = client.post(
+        "/v1/expedientes", json=_payload(identificador=identificador), headers=cabeceras
+    )
 
     assert respuesta.status_code == 422
+
+
+def test_crear_expediente_sin_radicar_no_exige_23_digitos(client):
+    """B.1: el eslabón roto que la revisión del 2026-08-16 marcó como el
+    hallazgo más importante — la fila 81 del Excel de Juan Diego (demanda
+    todavía sin radicar) tiene que caber en el modelo."""
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.post(
+        "/v1/expedientes",
+        json=_payload(
+            identificador="fila-81-sin-radicar-todavia",
+            tipo_identificador="sin_radicar",
+            seguimiento="manual",
+            tipo_proceso="administrativo",
+        ),
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["tipo_identificador"] == "sin_radicar"
+
+
+def test_crear_expediente_expediente_contraloria_como_seguimiento_manual(client):
+    """B.1: Contraloría entra como seguimiento manual, sin radicado de Rama
+    Judicial — la decisión de alcance que desbloquea este bloque."""
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.post(
+        "/v1/expedientes",
+        json=_payload(
+            identificador="responsabilidad-fiscal-001",
+            tipo_identificador="expediente_contraloria",
+            seguimiento="manual",
+            tipo_proceso="administrativo",
+        ),
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 201
 
 
 def test_crear_expediente_con_partes_de_10000_caracteres_pasa(client):
@@ -105,9 +157,9 @@ def test_crear_expediente_con_partes_de_10000_caracteres_pasa(client):
     assert respuesta.status_code == 201
 
 
-@pytest.mark.parametrize("campo", ["partes", "ultima_actuacion_conocida"])
+@pytest.mark.parametrize("campo", ["partes", "ultima_actuacion_al_importar"])
 def test_crear_expediente_con_texto_de_10001_caracteres_devuelve_422(client, campo):
-    """A.3.6: `partes` y `ultima_actuacion_conocida` eran `Text` sin
+    """A.3.6: `partes` y `ultima_actuacion_al_importar` eran `Text` sin
     `max_length` ni en Pydantic ni en la base — entrada no acotada que un
     usuario autenticado podía llenar con megabytes. El tope vive en la
     frontera de la aplicación (Pydantic); la columna `Text` de Postgres no
@@ -121,7 +173,7 @@ def test_crear_expediente_con_texto_de_10001_caracteres_devuelve_422(client, cam
     assert respuesta.status_code == 422
 
 
-def test_crear_expediente_con_radicado_duplicado_en_la_misma_organizacion_devuelve_409(client):
+def test_crear_expediente_con_identificador_duplicado_en_la_misma_organizacion_devuelve_409(client):
     _, cabeceras = _registrar_y_loguear(client)
     assert client.post("/v1/expedientes", json=_payload(), headers=cabeceras).status_code == 201
 
@@ -130,13 +182,46 @@ def test_crear_expediente_con_radicado_duplicado_en_la_misma_organizacion_devuel
     assert respuesta.status_code == 409
 
 
-def test_mismo_radicado_en_organizaciones_distintas_no_choca(client):
-    """El radicado es único por organización, no global."""
+def test_mismo_identificador_en_organizaciones_distintas_no_choca(client):
+    """El identificador es único por organización, no global."""
     _, cabeceras_a = _registrar_y_loguear(client, nombre_organizacion="Bufete A", email="a@example.com")
     _, cabeceras_b = _registrar_y_loguear(client, nombre_organizacion="Bufete B", email="b@example.com")
 
     assert client.post("/v1/expedientes", json=_payload(), headers=cabeceras_a).status_code == 201
     assert client.post("/v1/expedientes", json=_payload(), headers=cabeceras_b).status_code == 201
+
+
+# --- A.2.1: id_proceso_rama / fecha_ultima_consulta / ultimo_consecutivo_visto --
+
+
+def test_expediente_recien_creado_tiene_en_none_los_campos_del_conector(client):
+    _, cabeceras = _registrar_y_loguear(client)
+
+    cuerpo = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    assert cuerpo["id_proceso_rama"] is None
+    assert cuerpo["fecha_ultima_consulta"] is None
+    assert cuerpo["ultimo_consecutivo_visto"] is None
+
+
+def test_patch_puede_escribir_los_campos_del_conector(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={
+            "id_proceso_rama": 123456,
+            "fecha_ultima_consulta": "2026-08-21T08:00:00Z",
+            "ultimo_consecutivo_visto": 55,
+        },
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["id_proceso_rama"] == 123456
+    assert cuerpo["ultimo_consecutivo_visto"] == 55
 
 
 # --- GET /v1/expedientes (paginado) --------------------------------------
@@ -147,7 +232,7 @@ def test_listar_expedientes_devuelve_solo_los_de_la_organizacion_del_actor(clien
     _, cabeceras_b = _registrar_y_loguear(client, nombre_organizacion="Bufete B", email="b@example.com")
 
     client.post("/v1/expedientes", json=_payload(), headers=cabeceras_a)
-    client.post("/v1/expedientes", json=_payload(radicado=RADICADO_VALIDO_2), headers=cabeceras_a)
+    client.post("/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras_a)
     client.post("/v1/expedientes", json=_payload(), headers=cabeceras_b)
 
     respuesta = client.get("/v1/expedientes", headers=cabeceras_a)
@@ -163,7 +248,7 @@ def test_listar_expedientes_respeta_limit_y_offset(client):
     for indice in range(3):
         client.post(
             "/v1/expedientes",
-            json=_payload(radicado=f"1000000000000000000000{indice}"),
+            json=_payload(identificador=f"1000000000000000000000{indice}"),
             headers=cabeceras,
         )
 
@@ -210,23 +295,23 @@ def test_actualizar_expediente_devuelve_200_con_auditoria(client, db_session):
 
     respuesta = client.patch(
         f"/v1/expedientes/{creado['id']}",
-        json={"despacho": "Despacho 002", "ultima_actuacion_conocida": "Traslado"},
+        json={"despacho": "Despacho 002", "ultima_actuacion_al_importar": "Traslado"},
         headers=cabeceras,
     )
 
     assert respuesta.status_code == 200
     cuerpo = respuesta.json()
     assert cuerpo["despacho"] == "Despacho 002"
-    assert cuerpo["ultima_actuacion_conocida"] == "Traslado"
+    assert cuerpo["ultima_actuacion_al_importar"] == "Traslado"
     # Lo no enviado no cambia.
-    assert cuerpo["radicado"] == RADICADO_VALIDO
+    assert cuerpo["identificador"] == IDENTIFICADOR_VALIDO
 
     evento = (
         db_session.query(EventoAuditoria)
         .filter_by(entidad="expediente", entidad_id=creado["id"], accion="actualizar")
         .one()
     )
-    assert set(evento.detalle["campos"]) == {"despacho", "ultima_actuacion_conocida"}
+    assert set(evento.detalle["campos"]) == {"despacho", "ultima_actuacion_al_importar"}
 
 
 def test_actualizar_expediente_inexistente_devuelve_404(client):
@@ -241,15 +326,47 @@ def test_actualizar_expediente_inexistente_devuelve_404(client):
     assert respuesta.status_code == 404
 
 
-def test_actualizar_expediente_con_radicado_invalido_devuelve_422(client):
+def test_actualizar_expediente_con_identificador_invalido_devuelve_422(client):
+    """Cuando el PATCH trae `tipo_identificador` e `identificador` a la vez
+    (el caso de corregir la fila 18/34 cuando Juan Diego confirme el dato),
+    se valida la combinación igual que en la creación."""
     _, cabeceras = _registrar_y_loguear(client)
     creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
 
     respuesta = client.patch(
-        f"/v1/expedientes/{creado['id']}", json={"radicado": "123"}, headers=cabeceras
+        f"/v1/expedientes/{creado['id']}",
+        json={"tipo_identificador": "radicado_unificado", "identificador": "123"},
+        headers=cabeceras,
     )
 
     assert respuesta.status_code == 422
+
+
+# --- A.2.4: responsable_usuario_id ----------------------------------------
+
+
+def test_crear_expediente_sin_responsable_es_valido(client):
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.post("/v1/expedientes", json=_payload(), headers=cabeceras)
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["responsable_usuario_id"] is None
+
+
+def test_patch_asigna_responsable(client, db_session):
+    registro, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    usuario_id = registro["usuario_id"]
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={"responsable_usuario_id": usuario_id},
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["responsable_usuario_id"] == usuario_id
 
 
 # --- POST /v1/expedientes/{id}/archivar -----------------------------------
@@ -315,3 +432,38 @@ def test_expediente_de_otra_organizacion_no_es_visible_ni_editable(client):
     respuesta_a = client.get(f"/v1/expedientes/{expediente_id}", headers=cabeceras_a)
     assert respuesta_a.status_code == 200
     assert respuesta_a.json()["activo"] is True
+
+
+# --- A.1.3: revalidación del actor en rutas que mutan ----------------------
+
+
+def test_patch_con_usuario_desactivado_devuelve_401_aunque_el_jwt_siga_valido(client, db_session):
+    registro, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    usuario = db_session.get(Usuario, uuid.UUID(registro["usuario_id"]))
+    usuario.activo = False
+    db_session.flush()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}", json={"despacho": "otro"}, headers=cabeceras
+    )
+
+    assert respuesta.status_code == 401
+
+
+def test_get_con_usuario_desactivado_sigue_funcionando(client, db_session):
+    """Decisión tomada en esta sesión (Bloque A3, A.1.3): las rutas de solo
+    lectura se quedan con `usuario_actual` (sin SELECT extra); solo las que
+    mutan revalidan `activo` contra la base."""
+    registro, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    usuario = db_session.get(Usuario, uuid.UUID(registro["usuario_id"]))
+    usuario.activo = False
+    db_session.flush()
+    db_session.commit()
+
+    respuesta = client.get(f"/v1/expedientes/{creado['id']}", headers=cabeceras)
+
+    assert respuesta.status_code == 200

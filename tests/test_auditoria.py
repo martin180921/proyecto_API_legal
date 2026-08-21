@@ -19,7 +19,9 @@ def _crear_org_y_usuario(db_session):
     org = Organizacion(nombre="Bufete Infante", slug="bufete-infante")
     db_session.add(org)
     db_session.flush()
-    usuario = Usuario(organizacion_id=org.id, email="juan.diego@example.com", contrasena_hash="x")
+    usuario = Usuario(
+        organizacion_id=org.id, email="juan.diego@example.com", nombre="Juan Diego Infante", contrasena_hash="x"
+    )
     db_session.add(usuario)
     db_session.flush()
     return org, usuario

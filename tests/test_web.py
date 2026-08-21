@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.models.evento_auditoria import EventoAuditoria
 from app.models.expediente import Expediente
 
-RADICADO_VALIDO = "12345678901234567890123"
+IDENTIFICADOR_VALIDO = "12345678901234567890123"
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +21,7 @@ def _registrar(client, nombre_organizacion="Bufete Infante", email="juan.diego@e
         "/v1/auth/registro",
         json={
             "nombre_organizacion": nombre_organizacion,
+            "nombre": "Juan Diego Infante",
             "email": email,
             "contrasena": contrasena,
         },
@@ -44,7 +45,7 @@ def _registrar_y_loguear_web(client, **kwargs):
     return registro, contrasena
 
 
-def _crear_expediente_via_api(client, registro, contrasena, radicado=RADICADO_VALIDO):
+def _crear_expediente_via_api(client, registro, contrasena, identificador=IDENTIFICADOR_VALIDO):
     """Da de alta un expediente por la API JSON (con su propio bearer token,
     sin tocar la cookie de sesión web que el `client` ya tenga puesta)."""
     token = client.post(
@@ -57,7 +58,12 @@ def _crear_expediente_via_api(client, registro, contrasena, radicado=RADICADO_VA
     ).json()["access_token"]
     respuesta = client.post(
         "/v1/expedientes",
-        json={"radicado": radicado, "tipo_proceso": "civil"},
+        json={
+            "identificador": identificador,
+            "tipo_identificador": "radicado_unificado",
+            "seguimiento": "automatico",
+            "tipo_proceso": "civil",
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert respuesta.status_code == 201
@@ -157,7 +163,7 @@ def test_lista_de_expedientes_muestra_solo_los_de_la_organizacion(client):
 
     respuesta = client.get("/expedientes")
     assert respuesta.status_code == 200
-    assert RADICADO_VALIDO in respuesta.text
+    assert IDENTIFICADOR_VALIDO in respuesta.text
     assert "Expedientes (1)" in respuesta.text
 
 
@@ -171,8 +177,36 @@ def test_lista_de_expedientes_no_muestra_los_de_otra_organizacion(client):
 
     respuesta = client.get("/expedientes")
     assert respuesta.status_code == 200
-    assert RADICADO_VALIDO not in respuesta.text
+    assert IDENTIFICADOR_VALIDO not in respuesta.text
     assert "Expedientes (0)" in respuesta.text
+
+
+def test_lista_de_expedientes_marca_el_seguimiento_manual(client):
+    """B.1: los expedientes de seguimiento manual se ven en la misma lista,
+    con una marca clara — no desaparecen ni se confunden con los automáticos."""
+    registro_a, contrasena_a = _registrar_y_loguear_web(client)
+    token = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro_a["organizacion_slug"],
+            "email": registro_a["email"],
+            "contrasena": contrasena_a,
+        },
+    ).json()["access_token"]
+    client.post(
+        "/v1/expedientes",
+        json={
+            "identificador": "responsabilidad-fiscal-001",
+            "tipo_identificador": "expediente_contraloria",
+            "seguimiento": "manual",
+            "tipo_proceso": "administrativo",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    respuesta = client.get("/expedientes")
+    assert respuesta.status_code == 200
+    assert "Revisas tú" in respuesta.text
 
 
 def test_lista_de_expedientes_con_offset_negativo_devuelve_422(client):
@@ -195,7 +229,9 @@ def test_alta_de_expediente_valida_redirige_y_deja_auditoria(client, db_session)
     respuesta = client.post(
         "/expedientes/nuevo",
         data={
-            "radicado": RADICADO_VALIDO,
+            "identificador": IDENTIFICADOR_VALIDO,
+            "tipo_identificador": "radicado_unificado",
+            "seguimiento": "automatico",
             "tipo_proceso": "civil",
             "juzgado": "Juzgado Primero Civil del Circuito",
             "partes": "Demandante vs Demandado",
@@ -208,7 +244,7 @@ def test_alta_de_expediente_valida_redirige_y_deja_auditoria(client, db_session)
 
     expediente = (
         db_session.query(Expediente)
-        .filter_by(organizacion_id=registro["organizacion_id"], radicado=RADICADO_VALIDO)
+        .filter_by(organizacion_id=registro["organizacion_id"], identificador=IDENTIFICADOR_VALIDO)
         .one()
     )
     assert expediente.juzgado == "Juzgado Primero Civil del Circuito"
@@ -221,11 +257,17 @@ def test_alta_de_expediente_valida_redirige_y_deja_auditoria(client, db_session)
     assert str(evento.organizacion_id) == registro["organizacion_id"]
 
 
-def test_alta_de_expediente_con_radicado_invalido_reforma_el_formulario_con_error(client, db_session):
+def test_alta_de_expediente_con_identificador_invalido_reforma_el_formulario_con_error(client, db_session):
     registro, _ = _registrar_y_loguear_web(client)
 
     respuesta = client.post(
-        "/expedientes/nuevo", data={"radicado": "123", "tipo_proceso": "civil"}
+        "/expedientes/nuevo",
+        data={
+            "identificador": "123",
+            "tipo_identificador": "radicado_unificado",
+            "seguimiento": "automatico",
+            "tipo_proceso": "civil",
+        },
     )
 
     assert respuesta.status_code == 400
@@ -233,19 +275,46 @@ def test_alta_de_expediente_con_radicado_invalido_reforma_el_formulario_con_erro
     assert db_session.query(Expediente).filter_by(organizacion_id=registro["organizacion_id"]).count() == 0
 
 
-def test_alta_de_expediente_con_radicado_duplicado_devuelve_409(client):
-    _registrar_y_loguear_web(client)
+def test_alta_de_expediente_sin_radicar_no_exige_23_digitos(client, db_session):
+    """B.1: `sin_radicar` no lleva la CHECK de 23 dígitos — es justo el caso
+    de la fila 81 del Excel de Juan Diego, una demanda que todavía no se ha
+    radicado."""
+    registro, _ = _registrar_y_loguear_web(client)
 
-    primero = client.post(
+    respuesta = client.post(
         "/expedientes/nuevo",
-        data={"radicado": RADICADO_VALIDO, "tipo_proceso": "civil"},
+        data={
+            "identificador": "pendiente-de-radicar-fila-81",
+            "tipo_identificador": "sin_radicar",
+            "seguimiento": "manual",
+            "tipo_proceso": "administrativo",
+        },
         follow_redirects=False,
     )
+
+    assert respuesta.status_code == 303
+    assert (
+        db_session.query(Expediente)
+        .filter_by(organizacion_id=registro["organizacion_id"], identificador="pendiente-de-radicar-fila-81")
+        .count()
+        == 1
+    )
+
+
+def test_alta_de_expediente_con_identificador_duplicado_devuelve_409(client):
+    _registrar_y_loguear_web(client)
+
+    datos = {
+        "identificador": IDENTIFICADOR_VALIDO,
+        "tipo_identificador": "radicado_unificado",
+        "seguimiento": "automatico",
+        "tipo_proceso": "civil",
+    }
+
+    primero = client.post("/expedientes/nuevo", data=datos, follow_redirects=False)
     assert primero.status_code == 303
 
-    segundo = client.post(
-        "/expedientes/nuevo", data={"radicado": RADICADO_VALIDO, "tipo_proceso": "civil"}
-    )
+    segundo = client.post("/expedientes/nuevo", data=datos)
     assert segundo.status_code == 409
     assert "Ya existe" in segundo.text
 
@@ -253,7 +322,12 @@ def test_alta_de_expediente_con_radicado_duplicado_devuelve_409(client):
 def test_alta_de_expediente_sin_cookie_redirige_a_login(client):
     respuesta = client.post(
         "/expedientes/nuevo",
-        data={"radicado": RADICADO_VALIDO, "tipo_proceso": "civil"},
+        data={
+            "identificador": IDENTIFICADOR_VALIDO,
+            "tipo_identificador": "radicado_unificado",
+            "seguimiento": "automatico",
+            "tipo_proceso": "civil",
+        },
         follow_redirects=False,
     )
     assert respuesta.status_code == 303
