@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.red import ip_cliente
-from app.models.expediente import TipoProceso
+from app.models.expediente import Seguimiento, TipoIdentificador, TipoProceso
 from app.schemas.expediente import ExpedienteCrear
 from app.services import expedientes
 from app.services.autenticacion import intentar_login
 from app.web.auth import (
     actor_desde_cookie,
+    actor_verificado_desde_cookie,
     borrar_cookie_sesion,
     poner_cookie_sesion,
 )
@@ -97,47 +98,67 @@ def lista_expedientes(
 @router.get("/expedientes/nuevo", response_class=HTMLResponse, include_in_schema=False)
 def formulario_expediente_nuevo(request: Request, actor=Depends(actor_desde_cookie)) -> HTMLResponse:
     return templates.TemplateResponse(
-        request, "expediente_nuevo.html", {"error": None, "valores": {}, "tipos": list(TipoProceso)}
+        request,
+        "expediente_nuevo.html",
+        {
+            "error": None,
+            "valores": {},
+            "tipos": list(TipoProceso),
+            "tipos_identificador": list(TipoIdentificador),
+            "seguimientos": list(Seguimiento),
+        },
     )
 
 
 @router.post("/expedientes/nuevo", include_in_schema=False)
 def crear_expediente(
     request: Request,
-    radicado: str = Form(...),
+    identificador: str = Form(...),
+    tipo_identificador: str = Form(...),
+    seguimiento: str = Form(...),
     tipo_proceso: str = Form(...),
     juzgado: str = Form(""),
     despacho: str = Form(""),
     partes: str = Form(""),
-    ultima_actuacion_conocida: str = Form(""),
-    actor=Depends(actor_desde_cookie),
+    ultima_actuacion_al_importar: str = Form(""),
+    actor=Depends(actor_verificado_desde_cookie),
     db: Session = Depends(get_db),
 ):
     valores = {
-        "radicado": radicado,
+        "identificador": identificador,
+        "tipo_identificador": tipo_identificador,
+        "seguimiento": seguimiento,
         "tipo_proceso": tipo_proceso,
         "juzgado": juzgado,
         "despacho": despacho,
         "partes": partes,
-        "ultima_actuacion_conocida": ultima_actuacion_conocida,
+        "ultima_actuacion_al_importar": ultima_actuacion_al_importar,
     }
 
     def _error(mensaje: str, codigo: int = status.HTTP_400_BAD_REQUEST):
         return templates.TemplateResponse(
             request,
             "expediente_nuevo.html",
-            {"error": mensaje, "valores": valores, "tipos": list(TipoProceso)},
+            {
+                "error": mensaje,
+                "valores": valores,
+                "tipos": list(TipoProceso),
+                "tipos_identificador": list(TipoIdentificador),
+                "seguimientos": list(Seguimiento),
+            },
             status_code=codigo,
         )
 
     try:
         payload = ExpedienteCrear(
-            radicado=radicado,
+            identificador=identificador,
+            tipo_identificador=tipo_identificador,
+            seguimiento=seguimiento,
             tipo_proceso=tipo_proceso,
             juzgado=juzgado or None,
             despacho=despacho or None,
             partes=partes or None,
-            ultima_actuacion_conocida=ultima_actuacion_conocida or None,
+            ultima_actuacion_al_importar=ultima_actuacion_al_importar or None,
         )
     except ValueError as error:
         primer_error = error.errors()[0]["msg"] if hasattr(error, "errors") else str(error)
@@ -147,6 +168,9 @@ def crear_expediente(
         expedientes.crear(db, actor.organizacion_id, actor.usuario_id, payload)
     except IntegrityError:
         db.rollback()
-        return _error("Ya existe un expediente con ese radicado en esta organización.", status.HTTP_409_CONFLICT)
+        return _error(
+            "Ya existe un expediente con ese identificador en esta organización.",
+            status.HTTP_409_CONFLICT,
+        )
 
     return RedirectResponse(url="/expedientes", status_code=status.HTTP_303_SEE_OTHER)

@@ -167,7 +167,7 @@ que arranca `railway.json`. F0 no necesita autoservicio — el piloto es un abog
 Con el registro cerrado, el alta se hace así:
 
 ```bash
-python scripts/crear_organizacion.py --nombre "Bufete Infante" --slug bufete-infante --email juan.diego@example.com
+python scripts/crear_organizacion.py --nombre "Bufete Infante" --slug bufete-infante --email juan.diego@example.com --nombre-usuario "Juan Diego Infante"
 ```
 
 La contraseña se pide por consola para que no quede en el historial del shell. El `slug` es

@@ -15,8 +15,9 @@
 <table>
   <thead>
     <tr>
-      <th>Radicado</th>
+      <th>Identificador</th>
       <th>Tipo</th>
+      <th>Seguimiento</th>
       <th>Juzgado</th>
       <th>Última actuación conocida</th>
       <th>Estado</th>
@@ -25,10 +26,20 @@
   <tbody>
     {% for expediente in items %}
     <tr class="{{ 'inactivo' if not expediente.activo else '' }}">
-      <td>{{ expediente.radicado }}</td>
-      <td><span class="etiqueta">{{ expediente.tipo_proceso.value }}</span></td>
+      <td>{{ expediente.identificador }}</td>
+      <td>
+        <span class="etiqueta">{{ expediente.tipo_proceso.value }}</span>
+        <span class="etiqueta etiqueta-secundaria">{{ expediente.tipo_identificador.value }}</span>
+      </td>
+      <td>
+        {% if expediente.seguimiento.value == "manual" %}
+        <span class="etiqueta etiqueta-manual">Revisas tú</span>
+        {% else %}
+        Automático
+        {% endif %}
+      </td>
       <td>{{ expediente.juzgado or "—" }}</td>
-      <td>{{ expediente.ultima_actuacion_conocida or "—" }}</td>
+      <td>{{ expediente.ultima_actuacion_al_importar or "—" }}</td>
       <td>{{ "Activo" if expediente.activo else "Archivado" }}</td>
     </tr>
     {% endfor %}

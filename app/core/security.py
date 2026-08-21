@@ -9,6 +9,16 @@ código (Plan técnico por fases, bóveda): JWT **HS256**, claims mínimos
 para que, en el futuro, una API key pueda resolver el mismo `ActorActual`
 sin sesión de base de datos de por medio. Aquí solo se deja el hueco — la
 única implementación hoy es sesión JWT.
+
+`usuario_actual_verificado` (A.1.3, Bloque A3, 2026-08-21) es la variante que
+sí toca la base: un SELECT por PK para comprobar que el usuario sigue
+existiendo, pertenece a la organización del token y está `activo`. Sin esto,
+revocarle el acceso a un usuario no corta su JWT hasta que expire (hasta 8
+horas). Se aplica solo a las rutas que **mutan** datos
+(`POST`/`PATCH`/archivar de `/v1/expedientes`, alta en `app/web`) — las de
+solo lectura siguen con `usuario_actual`, más barato, porque el coste de que
+un token revocado siga *leyendo* durante unas horas es mucho menor que el de
+que siga *escribiendo*.
 """
 import secrets
 import uuid
@@ -19,8 +29,10 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.db import get_db
 
 _contexto_contrasena = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -104,3 +116,33 @@ def usuario_actual(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado"
         ) from error
+
+
+def actor_valido_y_activo(db: Session, actor: ActorActual) -> bool:
+    """SELECT por PK: el usuario del token existe, sigue en la misma
+    organización y está `activo`. Import perezoso de `Usuario` para no atar
+    `app.core.security` a `app.models` en tiempo de import — el resto de este
+    módulo no depende de ningún modelo."""
+    from app.models.usuario import Usuario
+
+    usuario = db.get(Usuario, actor.usuario_id)
+    return (
+        usuario is not None
+        and usuario.organizacion_id == actor.organizacion_id
+        and usuario.activo
+    )
+
+
+def usuario_actual_verificado(
+    actor: ActorActual = Depends(usuario_actual),
+    db: Session = Depends(get_db),
+) -> ActorActual:
+    """Variante de `usuario_actual` para rutas que mutan datos: revalida
+    contra la base en vez de confiar a ciegas en los claims del JWT (A.1.3).
+    Mismo 401 genérico que un token inválido, para no distinguir "token
+    válido de usuario desactivado" de "token inválido"."""
+    if not actor_valido_y_activo(db, actor):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado"
+        )
+    return actor

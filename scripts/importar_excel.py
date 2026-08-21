@@ -36,6 +36,16 @@ perdida, o de una sección que no sea civil/administrativo, se salta y queda
 en el reporte final con el motivo — es justo lo que pide la parada P3:
 "filas que no importan y por qué".
 
+Desde B.1 (2026-08-20) el modelo ya no tiene `radicado`: este importador solo
+sabe reconocer el caso `radicado_unificado` (23 dígitos), así que todo lo que
+crea lleva `tipo_identificador='radicado_unificado'` y `seguimiento=
+'automatico'` fijos. Los tres casos pendientes del Excel de Juan Diego (fila
+18 — formato anterior a la unificación, fila 34 — 22 dígitos, fila 81 — sin
+radicar todavía) siguen sin poder detectarse automáticamente: se dan de alta
+a mano como `sin_radicar` o `radicado_anterior` cuando él confirme el dato, y
+se corrigen con `PATCH` — decisión de alcance tomada en esta sesión (Bloque
+A3) para no meter heurísticas nuevas a un script ya de por sí conservador.
+
 Modo simulación por defecto
 ----------------------------
 Sin `--aplicar`, el script solo imprime el reporte (qué importaría, qué
@@ -67,7 +77,12 @@ from sqlalchemy.exc import IntegrityError  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
-from app.models.expediente import Expediente, TipoProceso  # noqa: E402
+from app.models.expediente import (  # noqa: E402
+    Expediente,
+    Seguimiento,
+    TipoIdentificador,
+    TipoProceso,
+)
 from app.models.organizacion import Organizacion  # noqa: E402
 from app.services import auditoria  # noqa: E402
 
@@ -274,8 +289,10 @@ def main() -> int:
             sys.exit(f"No existe ninguna organización con el slug «{args.organizacion}». No se ha hecho nada.")
 
         radicados_existentes = {
-            radicado
-            for (radicado,) in db.query(Expediente.radicado).filter_by(organizacion_id=organizacion.id).all()
+            identificador
+            for (identificador,) in db.query(Expediente.identificador)
+            .filter_by(organizacion_id=organizacion.id, tipo_identificador=TipoIdentificador.RADICADO_UNIFICADO)
+            .all()
         }
         radicados_vistos = set(radicados_existentes)
         importables, resultados = clasificar(bloques, radicados_vistos)
@@ -297,12 +314,14 @@ def main() -> int:
             for bloque in finales:
                 expediente = Expediente(
                     organizacion_id=organizacion.id,
-                    radicado=bloque.radicado,
+                    identificador=bloque.radicado,
+                    tipo_identificador=TipoIdentificador.RADICADO_UNIFICADO,
+                    seguimiento=Seguimiento.AUTOMATICO,
                     juzgado=bloque.juzgado,
                     despacho=None,
                     partes=_partes_texto(bloque),
                     tipo_proceso=bloque.seccion,
-                    ultima_actuacion_conocida=bloque.ultima_actuacion_conocida,
+                    ultima_actuacion_al_importar=bloque.ultima_actuacion_conocida,
                 )
                 db.add(expediente)
                 try:

@@ -109,6 +109,7 @@ def _crear_organizacion_y_usuario(
     usuario = Usuario(
         organizacion_id=organizacion.id,
         email=payload.email,
+        nombre=payload.nombre,
         contrasena_hash=hash_contrasena(payload.contrasena),
     )
     db.add(usuario)

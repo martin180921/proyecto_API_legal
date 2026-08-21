@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 
 class RegistroRequest(BaseModel):
     nombre_organizacion: str = Field(min_length=1, max_length=255)
+    # Nombre del usuario, no de la organización — hace falta desde A.2.4
+    # (Bloque A3, 2026-08-21) para que las alertas por correo al abogado
+    # responsable tengan a quién dirigirse, no solo un email.
+    nombre: str = Field(min_length=1, max_length=255)
     email: str = Field(min_length=3, max_length=255)
     contrasena: str = Field(min_length=8, max_length=72)
 

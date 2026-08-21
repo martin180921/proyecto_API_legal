@@ -90,11 +90,11 @@ def sembrar(db: Session) -> None:
     usuarios = [
         # `ana@ejemplo.test` existe en LAS DOS organizaciones. Ver el docstring.
         Usuario(id=id_de("u-a-ana"), organizacion_id=org_a.id,
-                email="ana@ejemplo.test", contrasena_hash=contrasena_hash),
+                email="ana@ejemplo.test", nombre="Ana Ejemplo", contrasena_hash=contrasena_hash),
         Usuario(id=id_de("u-b-ana"), organizacion_id=org_b.id,
-                email="ana@ejemplo.test", contrasena_hash=contrasena_hash),
+                email="ana@ejemplo.test", nombre="Ana Ejemplo", contrasena_hash=contrasena_hash),
         Usuario(id=id_de("u-a-luis"), organizacion_id=org_a.id,
-                email="luis@ejemplo.test", contrasena_hash=contrasena_hash),
+                email="luis@ejemplo.test", nombre="Luis Ejemplo", contrasena_hash=contrasena_hash),
     ]
     db.add_all(usuarios)
     db.flush()

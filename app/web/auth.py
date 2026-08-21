@@ -9,14 +9,22 @@ servidor aparte, para no duplicar lo que `security.py` ya resuelve.
 `NoAutenticadoWeb` en vez de la `HTTPException` que usa `usuario_actual`: una
 API responde 401 con JSON; una página debe redirigir a `/login`, no enseñar
 JSON crudo. El manejador está en `app/main.py`.
+
+`actor_verificado_desde_cookie` (A.1.3, Bloque A3, 2026-08-21) reutiliza
+`actor_valido_y_activo` de `app/core/security.py` en vez de repetir el mismo
+SELECT: la lección de A.1.1 fue justo que un núcleo compartido extraído a
+medias reaparece duplicado en el borde. Se usa solo en el alta de expediente
+(mutación); la lista sigue con `actor_desde_cookie`.
 """
 import uuid
 
 import jwt
-from fastapi import Request
+from fastapi import Depends, Request
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import ALGORITMO_JWT, EXPIRACION_TOKEN, ActorActual
+from app.core.db import get_db
+from app.core.security import ALGORITMO_JWT, EXPIRACION_TOKEN, ActorActual, actor_valido_y_activo
 
 NOMBRE_COOKIE = "sesion"
 
@@ -37,6 +45,15 @@ def actor_desde_cookie(request: Request) -> ActorActual:
         )
     except (jwt.PyJWTError, KeyError, ValueError) as error:
         raise NoAutenticadoWeb() from error
+
+
+def actor_verificado_desde_cookie(
+    actor: ActorActual = Depends(actor_desde_cookie),
+    db: Session = Depends(get_db),
+) -> ActorActual:
+    if not actor_valido_y_activo(db, actor):
+        raise NoAutenticadoWeb()
+    return actor
 
 
 def poner_cookie_sesion(response, token: str) -> None:

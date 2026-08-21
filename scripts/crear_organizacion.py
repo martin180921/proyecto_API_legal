@@ -17,7 +17,7 @@ Uso
 ---
     python scripts/crear_organizacion.py \
         --nombre "Bufete Infante" --slug bufete-infante \
-        --email juan.diego@example.com
+        --email juan.diego@example.com --nombre-usuario "Juan Diego Infante"
 
 La contraseña se pide por consola (no se ve al teclearla) para que no quede en
 el historial del shell. `--contrasena` existe para automatizar, con esa pega.
@@ -79,7 +79,9 @@ def validar(slug: str, contrasena: str) -> None:
         )
 
 
-def crear(db: Session, nombre: str, slug: str, email: str, contrasena: str) -> tuple[Organizacion, Usuario]:
+def crear(
+    db: Session, nombre: str, slug: str, email: str, nombre_usuario: str, contrasena: str
+) -> tuple[Organizacion, Usuario]:
     if db.query(Organizacion).filter_by(slug=slug).one_or_none() is not None:
         sys.exit(f"Ya existe una organización con el slug «{slug}». No se ha creado nada.")
 
@@ -90,6 +92,7 @@ def crear(db: Session, nombre: str, slug: str, email: str, contrasena: str) -> t
     usuario = Usuario(
         organizacion_id=organizacion.id,
         email=email,
+        nombre=nombre_usuario,
         contrasena_hash=hash_contrasena(contrasena),
     )
     db.add(usuario)
@@ -124,6 +127,12 @@ def main() -> int:
     parser.add_argument("--slug", required=True, help="Identificador del login, p. ej. bufete-infante")
     parser.add_argument("--email", required=True, help="Email del primer usuario")
     parser.add_argument(
+        "--nombre-usuario",
+        required=True,
+        dest="nombre_usuario",
+        help='Nombre de la persona, p. ej. "Juan Diego Infante" (A.2.4: hace falta para dirigir las alertas por correo al abogado responsable)',
+    )
+    parser.add_argument(
         "--contrasena",
         help="Si se omite, se pide por consola (recomendado: no queda en el historial del shell)",
     )
@@ -134,7 +143,9 @@ def main() -> int:
 
     engine = create_engine(settings.database_url)
     with Session(engine) as db:
-        organizacion, usuario = crear(db, args.nombre, args.slug, args.email, contrasena)
+        organizacion, usuario = crear(
+            db, args.nombre, args.slug, args.email, args.nombre_usuario, contrasena
+        )
         db.commit()
 
         # La contraseña no se imprime nunca, ni siquiera aquí: esta salida

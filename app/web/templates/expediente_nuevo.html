@@ -13,9 +13,25 @@
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
 <form class="formulario" method="post" action="/expedientes/nuevo">
-  <label for="radicado">Radicado (23 dígitos)</label>
-  <input id="radicado" name="radicado" required pattern="\d{23}" maxlength="23" minlength="23"
-         value="{{ valores.get('radicado', '') }}">
+  <label for="identificador">Identificador</label>
+  <input id="identificador" name="identificador" required maxlength="255"
+         value="{{ valores.get('identificador', '') }}">
+
+  <label for="tipo_identificador">Tipo de identificador</label>
+  <select id="tipo_identificador" name="tipo_identificador" required>
+    {% for tipo in tipos_identificador %}
+    <option value="{{ tipo.value }}" {{ "selected" if valores.get('tipo_identificador') == tipo.value else "" }}>{{ tipo.value }}</option>
+    {% endfor %}
+  </select>
+  <p class="ayuda">Solo «radicado_unificado» exige los 23 dígitos del radicado nacional.</p>
+
+  <label for="seguimiento">Seguimiento</label>
+  <select id="seguimiento" name="seguimiento" required>
+    {% for valor in seguimientos %}
+    <option value="{{ valor.value }}" {{ "selected" if valores.get('seguimiento') == valor.value else "" }}>{{ valor.value }}</option>
+    {% endfor %}
+  </select>
+  <p class="ayuda">«manual»: no entra en la revisión automática, lo revisas tú.</p>
 
   <label for="tipo_proceso">Tipo de proceso</label>
   <select id="tipo_proceso" name="tipo_proceso" required>
@@ -33,8 +49,8 @@
   <label for="partes">Partes</label>
   <textarea id="partes" name="partes" rows="3">{{ valores.get('partes', '') }}</textarea>
 
-  <label for="ultima_actuacion_conocida">Última actuación conocida</label>
-  <textarea id="ultima_actuacion_conocida" name="ultima_actuacion_conocida" rows="2">{{ valores.get('ultima_actuacion_conocida', '') }}</textarea>
+  <label for="ultima_actuacion_al_importar">Última actuación conocida (al importar)</label>
+  <textarea id="ultima_actuacion_al_importar" name="ultima_actuacion_al_importar" rows="2">{{ valores.get('ultima_actuacion_al_importar', '') }}</textarea>
 
   <button type="submit">Crear expediente</button>
 </form>

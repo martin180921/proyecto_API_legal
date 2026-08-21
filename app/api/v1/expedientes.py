@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import ActorActual, usuario_actual
+from app.core.security import ActorActual, usuario_actual, usuario_actual_verificado
 from app.models.expediente import Expediente
 from app.schemas.expediente import (
     ExpedienteActualizar,
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/expedientes", tags=["expedientes"])
 LIMITE_POR_DEFECTO = 20
 LIMITE_MAXIMO = 100
 
-_CONFLICTO_RADICADO = "Ya existe un expediente con ese radicado en esta organización."
+_CONFLICTO_IDENTIFICADOR = "Ya existe un expediente con ese identificador en esta organización."
 
 
 def _obtener_o_404(
@@ -49,14 +49,14 @@ def _obtener_o_404(
 @router.post("", response_model=ExpedienteResponse, status_code=status.HTTP_201_CREATED)
 def crear(
     payload: ExpedienteCrear,
-    actor: ActorActual = Depends(usuario_actual),
+    actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> Expediente:
     try:
         return expedientes.crear(db, actor.organizacion_id, actor.usuario_id, payload)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_RADICADO)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_IDENTIFICADOR)
 
 
 @router.get("", response_model=ExpedienteListaResponse)
@@ -83,7 +83,7 @@ def obtener(
 def actualizar(
     expediente_id: uuid.UUID,
     payload: ExpedienteActualizar,
-    actor: ActorActual = Depends(usuario_actual),
+    actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> Expediente:
     expediente = _obtener_o_404(db, actor.organizacion_id, expediente_id)
@@ -93,13 +93,13 @@ def actualizar(
         )
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_RADICADO)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_IDENTIFICADOR)
 
 
 @router.post("/{expediente_id}/archivar", response_model=ExpedienteResponse)
 def archivar(
     expediente_id: uuid.UUID,
-    actor: ActorActual = Depends(usuario_actual),
+    actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> Expediente:
     expediente = _obtener_o_404(db, actor.organizacion_id, expediente_id)
