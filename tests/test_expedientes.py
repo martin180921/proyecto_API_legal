@@ -342,6 +342,33 @@ def test_actualizar_expediente_con_identificador_invalido_devuelve_422(client):
     assert respuesta.status_code == 422
 
 
+def test_actualizar_solo_tipo_identificador_que_viola_la_check_devuelve_422(client):
+    """Revisión P4 (2026-08-22): cuando el PATCH trae solo `tipo_identificador`,
+    Pydantic no puede validar la combinación (no conoce el identificador
+    vigente) y quien la atrapa es la CHECK de la base de datos (SQLSTATE
+    23514). Antes ese IntegrityError se respondía como si fuera el UNIQUE:
+    409 con el mensaje de duplicado — engañoso. Ahora es 422 con el mismo
+    texto del validador."""
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post(
+        "/v1/expedientes",
+        json=_payload(identificador="EXP-2026-001", tipo_identificador="sin_radicar"),
+        headers=cabeceras,
+    ).json()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={"tipo_identificador": "radicado_unificado"},
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"] == (
+        "Con tipo_identificador='radicado_unificado' el identificador debe "
+        "tener exactamente 23 dígitos"
+    )
+
+
 # --- A.2.4: responsable_usuario_id ----------------------------------------
 
 

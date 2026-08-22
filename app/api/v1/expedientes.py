@@ -34,6 +34,29 @@ LIMITE_MAXIMO = 100
 
 _CONFLICTO_IDENTIFICADOR = "Ya existe un expediente con ese identificador en esta organización."
 
+# El mismo texto que da el validador Pydantic (`_validar_identificador` en
+# app/schemas/expediente.py): el cliente ve el mismo error tanto si lo atrapa
+# Pydantic (POST, o PATCH con ambos campos) como si lo atrapa la CHECK de la
+# base de datos (PATCH que cambia solo uno de los dos).
+_IDENTIFICADOR_INVALIDO = (
+    "Con tipo_identificador='radicado_unificado' el identificador debe "
+    "tener exactamente 23 dígitos"
+)
+
+
+def _respuesta_integridad(error: IntegrityError) -> HTTPException:
+    """Distingue por SQLSTATE, no por mensaje (mismo criterio que el arreglo
+    42ac01d: Postgres traduce los mensajes según `lc_messages`, los códigos
+    no). 23505 = unique_violation (identificador duplicado); 23514 =
+    check_violation (la CHECK condicional de 23 dígitos,
+    ck_expedientes_identificador_radicado_unificado_23_digitos), que es un
+    error de validación del cliente, no un conflicto — 422, no 409."""
+    if getattr(error.orig, "sqlstate", None) == "23514":
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_IDENTIFICADOR_INVALIDO
+        )
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_IDENTIFICADOR)
+
 
 def _obtener_o_404(
     db: Session, organizacion_id: uuid.UUID, expediente_id: uuid.UUID
@@ -54,9 +77,9 @@ def crear(
 ) -> Expediente:
     try:
         return expedientes.crear(db, actor.organizacion_id, actor.usuario_id, payload)
-    except IntegrityError:
+    except IntegrityError as error:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_IDENTIFICADOR)
+        raise _respuesta_integridad(error)
 
 
 @router.get("", response_model=ExpedienteListaResponse)
@@ -91,9 +114,9 @@ def actualizar(
         return expedientes.actualizar(
             db, actor.organizacion_id, actor.usuario_id, expediente, payload
         )
-    except IntegrityError:
+    except IntegrityError as error:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_CONFLICTO_IDENTIFICADOR)
+        raise _respuesta_integridad(error)
 
 
 @router.post("/{expediente_id}/archivar", response_model=ExpedienteResponse)
