@@ -51,7 +51,17 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -125,7 +135,11 @@ class Expediente(Base, TenantMixin):
     ultima_actuacion_al_importar: Mapped[str | None] = mapped_column(Text, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    id_proceso_rama: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BigInteger, no Integer: el spike de P4 documenta idRegActuacion=2694826740
+    # (> 2^31-1) en la misma API de la Rama Judicial, así que idProceso puede
+    # superar int32. `ultimo_consecutivo_visto` sí se queda en Integer:
+    # consActuacion es un consecutivo pequeño por expediente.
+    id_proceso_rama: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     fecha_ultima_consulta: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
