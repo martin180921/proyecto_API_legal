@@ -45,6 +45,12 @@ for señal in ("railway.app", "rlwy.net", "proyectoapilegal"):
 
 os.environ["DATABASE_URL"] = URL_PRUEBAS
 
+# 32+ bytes: con la clave por defecto (21 bytes), PyJWT emite
+# InsecureKeyLengthWarning en cada decode (RFC 7518 §3.2) y la suite acababa
+# con decenas de warnings que tapan los que sí importan. Solo pruebas — la de
+# producción la exige `app/core/config.py` por su lado.
+os.environ["SECRET_KEY"] = "clave-solo-para-pruebas-de-32-bytes-minimo"
+
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 

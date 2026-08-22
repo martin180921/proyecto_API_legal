@@ -262,15 +262,23 @@ def test_login_correcto_tras_fallos_contra_slug_inexistente_limpia_el_contador_g
     inexistente. Sin el reinicio, el primero de esos dos completaría el
     contador viejo (`19 + 1 = 20`) y el segundo toparía con el 429; con el
     reinicio, los dos siguen devolviendo 401 porque el contador vuelve a
-    empezar de cero."""
+    empezar de cero.
+
+    El contador se ceba llamando directamente a `registrar_intento`, igual
+    que la prueba de enumeración de arriba (revisión P4, 2026-08-22): 19
+    peticiones HTTP reales solo añadían 19 pasadas de bcrypt sin probar nada
+    que la prueba de enumeración no pruebe ya. Solo se hacen las peticiones
+    que verifican la transición. Mismo acoplamiento aceptado al formato
+    interno de la clave (`login:ip:{ip}`)."""
     intento_slug_inexistente = {
         "organizacion": "no-existe",
         "email": "nadie@example.com",
         "contrasena": "x",
     }
+    ip = "testclient"  # lo que expone request.client.host en TestClient
 
     for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL - 1):
-        assert client.post("/v1/auth/login", json=intento_slug_inexistente).status_code == 401
+        rate_limit.registrar_intento(f"login:ip:{ip}")
 
     registro = _registrar(client).json()
     correcto = client.post(
