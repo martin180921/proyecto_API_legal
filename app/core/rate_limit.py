@@ -51,7 +51,14 @@ def limite_superado(clave: str, limite: int = LIMITE_INTENTOS) -> bool:
     ahora = time.monotonic()
     with _candado:
         vigentes = _vigentes(clave, ahora)
-        _intentos[clave] = vigentes
+        # Solo se escribe si hay algo que recordar: la asignación
+        # incondicional de antes creaba una entrada permanente (con lista
+        # vacía) por cada clave consultada — cada email probado, cada IP
+        # nueva —, justo la fuga que A.3.8 decía haber cerrado.
+        if vigentes:
+            _intentos[clave] = vigentes
+        else:
+            _intentos.pop(clave, None)
         return len(vigentes) >= limite
 
 
@@ -88,6 +95,9 @@ def marcar_auditado(clave: str) -> bool:
         marca = _auditadas.get(clave)
         if marca is not None and ahora - marca < VENTANA_SEGUNDOS:
             return False
+        # Una marca caducada no necesita purga aparte: la asignación de abajo
+        # la sobrescribe siempre que se consulta. A diferencia de
+        # `limite_superado`, aquí ninguna rama deja una entrada vacía.
         _auditadas[clave] = ahora
         return True
 
