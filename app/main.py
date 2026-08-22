@@ -58,24 +58,33 @@ async def log_requests(request: Request, call_next):
     request_id = str(uuid.uuid4())
     token = id_peticion_actual.set(request_id)
     inicio = time.monotonic()
-    response = await call_next(request)
-    id_peticion_actual.reset(token)
-    duracion_ms = round((time.monotonic() - inicio) * 1000, 2)
-
-    response.headers["X-Request-ID"] = request_id
-    logger.info(
-        "request",
-        extra={
-            "request_id": request_id,
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duracion_ms": duracion_ms,
-            "xff": request.headers.get("x-forwarded-for"),
-            "ip_resuelta": ip_cliente(request),
-        },
-    )
-    return response
+    # try/finally (revisión P4, 2026-08-22): el handler global de Exception
+    # corre por FUERA de este middleware, así que cuando `call_next` lanza,
+    # sin esto la petición se quedaba sin línea de log, sin `X-Request-ID` y
+    # sin `reset()` del contextvar — justo las peticiones que revientan, las
+    # que más falta hace correlacionar. Si hubo excepción se loguea con
+    # status_code=500 (lo que el handler global va a responder) y se relanza
+    # para que ese handler siga construyendo la misma respuesta de siempre.
+    response = None
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        id_peticion_actual.reset(token)
+        duracion_ms = round((time.monotonic() - inicio) * 1000, 2)
+        logger.info(
+            "request",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code if response is not None else 500,
+                "duracion_ms": duracion_ms,
+                "xff": request.headers.get("x-forwarded-for"),
+                "ip_resuelta": ip_cliente(request),
+            },
+        )
 
 
 @app.exception_handler(NoAutenticadoWeb)

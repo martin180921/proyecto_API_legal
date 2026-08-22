@@ -20,7 +20,14 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False (revisión P4, 2026-08-22): el default
+    # (True) deshabilita cualquier logger ya creado — y cuando las migraciones
+    # corren dentro del proceso de pytest (conftest, fixture `engine`), el
+    # logger "api_legal" ya existe si algún módulo de tests importó
+    # `app/api/v1/auth.py` en la colección. Resultado: el middleware
+    # `log_requests` quedaba mudo en casi toda la suite, en silencio. En el
+    # uso normal (alembic como proceso aparte) no cambia nada.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

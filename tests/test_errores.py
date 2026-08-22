@@ -98,3 +98,32 @@ def test_excepcion_no_controlada_en_la_web_devuelve_html_sin_la_excepcion_real(c
     assert "Traceback" not in respuesta.text
     assert "secreto-123" not in respuesta.text
     assert "RuntimeError" not in respuesta.text
+
+
+def test_peticion_que_revienta_deja_linea_de_log_con_request_id(client, monkeypatch, caplog):
+    """Revisión P4 (2026-08-22): el handler global de Exception corre por
+    fuera del middleware `log_requests`, así que cuando `call_next` lanzaba,
+    esa petición —justo la que más falta hace correlacionar— se quedaba sin
+    línea de log. Con el try/finally, la línea sale siempre, con su
+    `request_id` y `status_code=500`."""
+    registro, contrasena = _registrar(client)
+    token = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": registro["email"],
+            "contrasena": contrasena,
+        },
+    ).json()["access_token"]
+    monkeypatch.setattr(expedientes, "listar", _explota)
+
+    with caplog.at_level("INFO", logger="api_legal"):
+        respuesta = client.get("/v1/expedientes", headers={"Authorization": f"Bearer {token}"})
+
+    assert respuesta.status_code == 500
+    lineas = [
+        r for r in caplog.records if r.message == "request" and r.path == "/v1/expedientes"
+    ]
+    assert len(lineas) == 1
+    assert lineas[0].status_code == 500
+    assert lineas[0].request_id  # UUID no vacío: la correlación sobrevive al fallo
