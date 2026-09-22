@@ -132,10 +132,13 @@ def intentar_login(
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
 
-    # Un acierto borra el historial de fallos.
+    # Un acierto borra solo el historial de la cuenta (R.5): las claves por IP
+    # quedan vivas y caducan por ventana. Limpiarlas también dejaba borrar el
+    # tope de enumeración con cualquier login válido — quien tuviera una
+    # cuenta (o un registro abierto) podía intercalar su propio login cada
+    # pocos intentos y reiniciar el contador de *password spraying* contra
+    # muchos correos distintos, sin llegar nunca al umbral.
     limpiar(clave_usuario)
-    limpiar(clave_ip)
-    limpiar(clave_ip_global)
 
     auditoria.registrar(
         db,

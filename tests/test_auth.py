@@ -313,25 +313,26 @@ def test_veinte_intentos_contra_slug_inexistente_desde_la_misma_ip_devuelve_429_
     assert bloqueada.status_code == 429
 
 
-def test_login_correcto_tras_fallos_contra_slug_inexistente_limpia_el_contador_global_por_ip(client):
-    """Un acierto borra también la clave global por IP, igual que ya hacía con
-    las claves por-organización (arreglo 8 del 2026-08-08).
+def test_login_correcto_ya_no_limpia_el_contador_global_por_ip(client):
+    """R.5 (Revisión integral, 2026-09-17): antes de este arreglo, un login
+    correcto borraba también `login:ip:{ip}` — quien tuviera una cuenta válida
+    (o un registro abierto) podía intercalar su propio login cada pocos
+    intentos y reiniciar el tope de enumeración indefinidamente, probando una
+    contraseña común contra muchos correos sin llegar nunca al umbral. Ahora
+    un acierto solo limpia la clave de la propia cuenta; la global por IP
+    sigue viva y caduca por ventana, igual que si el acierto no hubiera
+    pasado.
 
-    Se construye la cuenta hasta un fallo por debajo del umbral global
+    Se ceba la cuenta hasta un fallo por debajo del umbral global
     (`LIMITE_INTENTOS_IP_GLOBAL - 1`) fallando contra un slug inexistente —así
     no se toca ninguna clave por-organización—, se hace un login correcto en
-    una organización real, y se comprueban dos fallos más contra el slug
-    inexistente. Sin el reinicio, el primero de esos dos completaría el
-    contador viejo (`19 + 1 = 20`) y el segundo toparía con el 429; con el
-    reinicio, los dos siguen devolviendo 401 porque el contador vuelve a
-    empezar de cero.
-
-    El contador se ceba llamando directamente a `registrar_intento`, igual
-    que la prueba de enumeración de arriba (revisión P4, 2026-08-22): 19
-    peticiones HTTP reales solo añadían 19 pasadas de bcrypt sin probar nada
-    que la prueba de enumeración no pruebe ya. Solo se hacen las peticiones
-    que verifican la transición. Mismo acoplamiento aceptado al formato
-    interno de la clave (`login:ip:{ip}`)."""
+    una organización real, y dos fallos más contra el slug inexistente: el
+    primero todavía da 401 (la comprobación ocurre antes de incrementar, y el
+    contador seguía en 19 porque el acierto no lo tocó), el segundo ya da
+    429. Sin el arreglo, el acierto habría reiniciado el contador a cero y
+    los dos fallos siguientes seguirían dando 401. Mismo cebado directo con
+    `registrar_intento` y mismo acoplamiento al formato de la clave
+    (`login:ip:{ip}`) que la prueba de enumeración de arriba."""
     intento_slug_inexistente = {
         "organizacion": "no-existe",
         "email": "nadie@example.com",
@@ -353,8 +354,43 @@ def test_login_correcto_tras_fallos_contra_slug_inexistente_limpia_el_contador_g
     )
     assert correcto.status_code == 200
 
-    for _ in range(2):
-        assert client.post("/v1/auth/login", json=intento_slug_inexistente).status_code == 401
+    assert client.post("/v1/auth/login", json=intento_slug_inexistente).status_code == 401
+    bloqueada = client.post("/v1/auth/login", json=intento_slug_inexistente)
+    assert bloqueada.status_code == 429
+
+
+def test_password_spraying_no_se_reinicia_con_un_acierto_de_otra_cuenta(client, db_session):
+    """Escenario central de R.5: alguien con **una** cuenta válida en la
+    organización prueba una contraseña común contra 19 correos distintos
+    desde su IP, intercala un login correcto de su propia cuenta para
+    intentar reiniciar el contador, y un fallo más contra un correo distinto
+    ya debe dar 429 — el acierto no le devolvió el margen. Antes de R.5, el
+    acierto limpiaba `login:ip:{ip}` y el atacante podía repetir el patrón
+    indefinidamente sin llegar nunca al umbral."""
+    registro = _registrar(client).json()
+    ip = "testclient"  # lo que expone request.client.host en TestClient
+
+    for _ in range(rate_limit.LIMITE_INTENTOS_IP_GLOBAL - 1):
+        rate_limit.registrar_intento(f"login:ip:{ip}")
+
+    correcto = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": "juan.diego@example.com",
+            "contrasena": "clave-larga-1",
+        },
+    )
+    assert correcto.status_code == 200
+
+    intento_otro_correo = {
+        "organizacion": registro["organizacion_slug"],
+        "email": "otro-correo@example.com",
+        "contrasena": "clave-comun",
+    }
+    assert client.post("/v1/auth/login", json=intento_otro_correo).status_code == 401
+    bloqueada = client.post("/v1/auth/login", json=intento_otro_correo)
+    assert bloqueada.status_code == 429
 
 
 def test_verificar_o_quemar_tiempo_y_su_uso_en_organizacion_inexistente(client, monkeypatch):
@@ -678,9 +714,17 @@ def test_insistir_tras_el_bloqueo_no_multiplica_los_eventos(client, db_session):
 
 def test_un_login_correcto_reinicia_el_contador_de_fallos(client):
     """Cuatro fallos, un acierto, y cuatro fallos más: el usuario sigue
-    recibiendo 401, no 429. Sin esto, un acierto no contaba para nada y el
-    usuario quedaba a un solo fallo del bloqueo durante el resto de la
-    ventana."""
+    recibiendo 401, no 429, gracias a que el acierto reinicia su propia clave
+    (`clave_usuario`). Sin esto, un acierto no contaba para nada y el usuario
+    quedaba a un solo fallo del bloqueo durante el resto de la ventana.
+
+    Tras R.5 (2026-09-17) un acierto ya no limpia las claves por IP — ver
+    `test_login_correcto_ya_no_limpia_el_contador_global_por_ip`, que prueba
+    justo eso —, así que aquí se limpian a mano entre las dos tandas para
+    aislar el reinicio de `clave_usuario`, que es lo único que prueba este
+    test: de lo contrario los cuatro fallos de después, sobre la misma IP que
+    los cuatro de antes, tropezarían con el tope por-IP en vez de con el de
+    la cuenta."""
     registro = _registrar(client).json()
     fallido = {
         "organizacion": registro["organizacion_slug"],
@@ -693,6 +737,10 @@ def test_un_login_correcto_reinicia_el_contador_de_fallos(client):
         assert client.post("/v1/auth/login", json=fallido).status_code == 401
 
     assert client.post("/v1/auth/login", json=correcto).status_code == 200
+
+    ip = "testclient"  # lo que expone request.client.host en TestClient
+    rate_limit.limpiar(f"login:org:{registro['organizacion_id']}:ip:{ip}")
+    rate_limit.limpiar(f"login:ip:{ip}")
 
     for _ in range(rate_limit.LIMITE_INTENTOS - 1):
         assert client.post("/v1/auth/login", json=fallido).status_code == 401
