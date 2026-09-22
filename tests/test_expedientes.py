@@ -191,37 +191,53 @@ def test_mismo_identificador_en_organizaciones_distintas_no_choca(client):
     assert client.post("/v1/expedientes", json=_payload(), headers=cabeceras_b).status_code == 201
 
 
-# --- A.2.1: id_proceso_rama / fecha_ultima_consulta / ultimo_consecutivo_visto --
+# --- B.1-bis / A5.3: procesos_fuente sustituye los campos del conector -----
 
 
-def test_expediente_recien_creado_tiene_en_none_los_campos_del_conector(client):
+def test_expediente_recien_creado_tiene_procesos_vacio(client):
+    """Los tres campos del motor (`id_proceso_rama`, `fecha_ultima_consulta`,
+    `ultimo_consecutivo_visto`) salieron de `Expediente` en A5.3 (B.1-bis,
+    2026-09-22): el estado del motor vive en `procesos_fuente`, y un
+    expediente recién creado todavía no tiene ninguno."""
     _, cabeceras = _registrar_y_loguear(client)
 
     cuerpo = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
 
-    assert cuerpo["id_proceso_rama"] is None
-    assert cuerpo["fecha_ultima_consulta"] is None
-    assert cuerpo["ultimo_consecutivo_visto"] is None
+    assert cuerpo["procesos"] == []
+    assert "id_proceso_rama" not in cuerpo
+    assert "fecha_ultima_consulta" not in cuerpo
+    assert "ultimo_consecutivo_visto" not in cuerpo
 
 
-def test_patch_puede_escribir_los_campos_del_conector(client):
+def test_patch_con_campo_del_motor_desconocido_devuelve_422(client):
+    """R.4 + `extra=\"forbid\"` (A5.3, decisión de Martin, 2026-09-22): los
+    tres campos que escribía el motor ya no existen en `ExpedienteActualizar`
+    — un PATCH que los traiga da 422 en vez de ignorarlos en silencio."""
     _, cabeceras = _registrar_y_loguear(client)
     creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
 
     respuesta = client.patch(
         f"/v1/expedientes/{creado['id']}",
-        json={
-            "id_proceso_rama": 123456,
-            "fecha_ultima_consulta": "2026-08-21T08:00:00Z",
-            "ultimo_consecutivo_visto": 55,
-        },
+        json={"ultimo_consecutivo_visto": 55},
         headers=cabeceras,
     )
 
-    assert respuesta.status_code == 200
-    cuerpo = respuesta.json()
-    assert cuerpo["id_proceso_rama"] == 123456
-    assert cuerpo["ultimo_consecutivo_visto"] == 55
+    assert respuesta.status_code == 422
+
+
+def test_patch_con_campo_desconocido_cualquiera_devuelve_422(client):
+    """`extra=\"forbid\"` no es solo para los tres campos del motor: cierra
+    la vía para cualquier campo mal escrito o inventado."""
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={"despcaho": "typo"},
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 422
 
 
 # --- GET /v1/expedientes (paginado) --------------------------------------
@@ -394,6 +410,115 @@ def test_patch_asigna_responsable(client, db_session):
 
     assert respuesta.status_code == 200
     assert respuesta.json()["responsable_usuario_id"] == usuario_id
+
+
+def test_crear_expediente_con_responsable_de_otra_organizacion_devuelve_422_y_no_escribe(
+    client, db_session
+):
+    """R.3 (revisión del 2026-09-17): antes de A5.3 un `responsable_usuario_id`
+    de otra organización violaba la FK simple con un `IntegrityError` que el
+    router traducía, por error, en 409 «ya existe un expediente con ese
+    identificador» — un mensaje falso. Ahora se valida antes de escribir."""
+    _, cabeceras_a = _registrar_y_loguear(client, nombre_organizacion="Bufete A", email="a@example.com")
+    registro_b, _ = _registrar_y_loguear(client, nombre_organizacion="Bufete B", email="b@example.com")
+
+    respuesta = client.post(
+        "/v1/expedientes",
+        json=_payload(responsable_usuario_id=registro_b["usuario_id"]),
+        headers=cabeceras_a,
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["codigo"] == "responsable_invalido"
+    assert (
+        db_session.query(Expediente)
+        .filter_by(identificador=IDENTIFICADOR_VALIDO)
+        .first()
+        is None
+    )
+
+
+def test_patch_con_responsable_de_otra_organizacion_devuelve_422(client):
+    _, cabeceras_a = _registrar_y_loguear(client, nombre_organizacion="Bufete A", email="a@example.com")
+    registro_b, _ = _registrar_y_loguear(client, nombre_organizacion="Bufete B", email="b@example.com")
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras_a).json()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={"responsable_usuario_id": registro_b["usuario_id"]},
+        headers=cabeceras_a,
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["codigo"] == "responsable_invalido"
+
+
+def test_patch_con_responsable_inactivo_de_la_misma_organizacion_devuelve_422(client, db_session):
+    registro, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    otro_usuario = Usuario(
+        organizacion_id=uuid.UUID(registro["organizacion_id"]),
+        email="inactivo@example.com",
+        nombre="Usuario Inactivo",
+        contrasena_hash="x",
+        activo=False,
+    )
+    db_session.add(otro_usuario)
+    db_session.flush()
+    db_session.commit()
+
+    respuesta = client.patch(
+        f"/v1/expedientes/{creado['id']}",
+        json={"responsable_usuario_id": str(otro_usuario.id)},
+        headers=cabeceras,
+    )
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["codigo"] == "responsable_invalido"
+
+
+def test_parte_con_organizacion_distinta_a_la_de_su_expediente_viola_fk_compuesta(
+    db_session,
+):
+    """R.3, capa de base de datos: la prueba que de verdad cierra el
+    invariante de tenancy, insertando por SQLAlchemy Core (sin pasar por el
+    servicio) una `Parte` cuyo `organizacion_id` no coincide con el de su
+    `expediente_id`. La FK compuesta `(organizacion_id, expediente_id) ->
+    expedientes (organizacion_id, id)` (A5.3) hace que la base la rechace,
+    algo que la FK simple anterior no podía impedir."""
+    from sqlalchemy.exc import IntegrityError as SAIntegrityError
+
+    from app.models.organizacion import Organizacion
+
+    organizacion_a = Organizacion(nombre="Bufete A", slug="bufete-a-fk")
+    organizacion_b = Organizacion(nombre="Bufete B", slug="bufete-b-fk")
+    db_session.add_all([organizacion_a, organizacion_b])
+    db_session.flush()
+
+    expediente_a = Expediente(
+        organizacion_id=organizacion_a.id,
+        identificador=IDENTIFICADOR_VALIDO,
+        tipo_identificador="radicado_unificado",
+        seguimiento="automatico",
+        tipo_proceso="civil",
+    )
+    db_session.add(expediente_a)
+    db_session.flush()
+
+    from app.models.parte import Parte
+
+    parte_de_otra_organizacion = Parte(
+        organizacion_id=organizacion_b.id,  # distinto al de expediente_a
+        expediente_id=expediente_a.id,
+        tipo="Demandante",
+        nombre="Alguien",
+        origen="importacion",
+    )
+    db_session.add(parte_de_otra_organizacion)
+
+    with pytest.raises(SAIntegrityError):
+        db_session.flush()
 
 
 # --- POST /v1/expedientes/{id}/archivar -----------------------------------

@@ -16,12 +16,18 @@ Lleva `organizacion_id` propio vía `TenantMixin`, aunque es derivable de
 lleva `organizacion_id`" (invariante de multi-tenancy), mismo criterio que ya
 sigue `EventoAuditoria` con su propio `organizacion_id` pese a que
 `entidad_id` podría, en teoría, resolverlo indirectamente.
+
+La FK a `expedientes` es **compuesta** `(organizacion_id, expediente_id)`
+desde A5.3 (B.1-bis, 2026-09-22, R.3): con una FK simple sobre `expediente_id`
+la base aceptaba una `Parte` de la organización A colgada de un expediente de
+la B — los UUID no son adivinables, así que era una grieta, no una fuga, pero
+de la clase "silencioso y caro" que el proyecto marca como alto riesgo.
 """
 import enum
 import uuid
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Uuid
+from sqlalchemy import ForeignKeyConstraint, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -36,9 +42,15 @@ class OrigenParte(str, enum.Enum):
 class Parte(Base, TenantMixin):
     __tablename__ = "partes"
 
-    expediente_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("expedientes.id"), nullable=False, index=True
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organizacion_id", "expediente_id"],
+            ["expedientes.organizacion_id", "expedientes.id"],
+            name="fk_partes_expediente_organizacion",
+        ),
     )
+
+    expediente_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     tipo: Mapped[str] = mapped_column(String(100), nullable=False)
     nombre: Mapped[str] = mapped_column(String(255), nullable=False)
     identificacion: Mapped[str | None] = mapped_column(String(50), nullable=True)

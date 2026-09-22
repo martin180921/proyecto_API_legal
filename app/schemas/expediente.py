@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.expediente import Seguimiento, TipoIdentificador, TipoProceso
+from app.schemas.proceso_fuente import ProcesoFuenteResponse
 
 _PATRON_RADICADO_UNIFICADO = re.compile(r"^\d{23}$")
 
@@ -43,7 +44,15 @@ class ExpedienteCrear(BaseModel):
 
 class ExpedienteActualizar(BaseModel):
     """Todos los campos opcionales: PATCH solo toca lo que llega en el cuerpo
-    (`exclude_unset` en `app/services/expedientes.py`)."""
+    (`exclude_unset` en `app/services/expedientes.py`).
+
+    `extra="forbid"` (A5.3, 2026-09-22, decisión de Martin): un campo
+    desconocido en el cuerpo —mal escrito, o uno de los que el motor dejó de
+    exponer aquí (`id_proceso_rama`, `fecha_ultima_consulta`,
+    `ultimo_consecutivo_visto`)— da 422 en vez de ignorarse en silencio. Es
+    el comportamiento correcto para un contrato público."""
+
+    model_config = {"extra": "forbid"}
 
     identificador: str | None = Field(default=None, min_length=1, max_length=255)
     tipo_identificador: TipoIdentificador | None = None
@@ -54,9 +63,6 @@ class ExpedienteActualizar(BaseModel):
     tipo_proceso: TipoProceso | None = None
     ultima_actuacion_al_importar: str | None = Field(default=None, max_length=10_000)
     responsable_usuario_id: uuid.UUID | None = None
-    id_proceso_rama: int | None = None
-    fecha_ultima_consulta: datetime | None = None
-    ultimo_consecutivo_visto: int | None = None
 
     @model_validator(mode="after")
     def _validar(self) -> "ExpedienteActualizar":
@@ -85,10 +91,10 @@ class ExpedienteResponse(BaseModel):
     ultima_actuacion_al_importar: str | None
     activo: bool
     creado_en: datetime
-    id_proceso_rama: int | None
-    fecha_ultima_consulta: datetime | None
-    ultimo_consecutivo_visto: int | None
     responsable_usuario_id: uuid.UUID | None
+    # Solo lectura: lo escribe el motor sobre `ProcesoFuente`, nunca el
+    # cliente (B.1-bis, R.4).
+    procesos: list[ProcesoFuenteResponse]
 
     model_config = {"from_attributes": True}
 

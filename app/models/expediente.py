@@ -21,13 +21,14 @@ responsabilidad fiscal ante Contraloría entran con `tipo_identificador =
 `tipo_proceso`.
 
 `id_proceso_rama`, `fecha_ultima_consulta` y `ultimo_consecutivo_visto`
-(A.2.1) quedan preparados para `app/connectors/rama_judicial.py` (fuera de
-esta sesión): el spike de P4 encontró que el conector necesita tres llamadas
-encadenadas por expediente para llegar a las actuaciones, y `idProceso` es la
-clave de las dos siguientes — guardarlo evita repetir la búsqueda por
-radicado cada mañana. `ultimo_consecutivo_visto` es el `consActuacion` del
-spike: compara por entero, no por fecha, que es frágil porque la Rama
-Judicial registra actuaciones con fecha anterior a la de publicación.
+(A.2.1) vivieron aquí como escalares hasta la migración de B.1-bis (A5.3,
+2026-09-22): la revisión senior de P4 (C.1) encontró que un radicado puede
+devolver varios `idProceso`, y que un proceso remitido a otro despacho
+continúa bajo uno distinto — un escalar por expediente no podía representarlo.
+El estado del motor vive ahora en `app/models/proceso_fuente.py::ProcesoFuente`
+(relación 1:N, expuesta en `Expediente.procesos`, solo lectura desde la API —
+R.4). Ver [[Relación expediente ↔ proceso de la fuente — B.1-bis]] en la
+bóveda.
 
 `ultima_actuacion_al_importar` (A.2.3, antes `ultima_actuacion_conocida`) es
 un dato histórico de la migración desde el Excel: no se actualiza después de
@@ -49,21 +50,17 @@ alimentará el conector.
 """
 import enum
 import uuid
-from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
-    DateTime,
-    ForeignKey,
-    Integer,
+    ForeignKeyConstraint,
     String,
     Text,
     UniqueConstraint,
     Uuid,
 )
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TenantMixin
@@ -92,6 +89,14 @@ class Expediente(Base, TenantMixin):
     __table_args__ = (
         UniqueConstraint(
             "organizacion_id", "identificador", name="uq_expedientes_organizacion_identificador"
+        ),
+        # Requisito de toda FK compuesta que apunte a `expedientes` desde una
+        # tabla hija con tenancy propio (`partes`, `procesos_fuente`, R.3).
+        UniqueConstraint("organizacion_id", "id", name="uq_expedientes_organizacion_id"),
+        ForeignKeyConstraint(
+            ["organizacion_id", "responsable_usuario_id"],
+            ["usuarios.organizacion_id", "usuarios.id"],
+            name="fk_expedientes_responsable_organizacion",
         ),
     )
 
@@ -135,16 +140,18 @@ class Expediente(Base, TenantMixin):
     ultima_actuacion_al_importar: Mapped[str | None] = mapped_column(Text, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # BigInteger, no Integer: el spike de P4 documenta idRegActuacion=2694826740
-    # (> 2^31-1) en la misma API de la Rama Judicial, así que idProceso puede
-    # superar int32. `ultimo_consecutivo_visto` sí se queda en Integer:
-    # consActuacion es un consecutivo pequeño por expediente.
-    id_proceso_rama: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    fecha_ultima_consulta: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    ultimo_consecutivo_visto: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    responsable_usuario_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
-    responsable_usuario_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("usuarios.id"), nullable=True
+    # viewonly: la API nunca escribe aquí — lo hace el motor sobre
+    # `ProcesoFuente` directamente (fuera de esta sesión). `foreign()` marca
+    # el lado FK porque el join es compuesto (organizacion_id + expediente_id),
+    # no la columna simple que `relationship()` infiere por defecto.
+    procesos: Mapped[list["ProcesoFuente"]] = relationship(  # noqa: F821
+        "ProcesoFuente",
+        primaryjoin=(
+            "and_(Expediente.id == foreign(ProcesoFuente.expediente_id), "
+            "Expediente.organizacion_id == ProcesoFuente.organizacion_id)"
+        ),
+        viewonly=True,
+        order_by="ProcesoFuente.creado_en",
     )

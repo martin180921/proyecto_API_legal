@@ -57,4 +57,17 @@ jobs:
           pip-audit -r requirements.txt
       - name: Crear rol y bases de datos de prueba
         run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f scripts/init-db.sql
+      - name: Una sola cabeza de Alembic
+        # Red de seguridad para el trabajo en paralelo (A5.3, 2026-09-22): dos
+        # agentes creando migraciones a la vez sobre la misma rama base dejan
+        # dos heads sin que nadie lo note hasta el despliegue. Solo un agente
+        # (`modelo`) crea migraciones, siempre en serie — esto lo hace fallar
+        # rápido si alguna vez se rompe esa regla.
+        run: |
+          heads=$(alembic heads | wc -l)
+          if [ "$heads" -ne 1 ]; then
+            echo "Alembic tiene $heads cabezas, se esperaba 1. ¿Dos migraciones creadas en paralelo sin fusionar?"
+            alembic heads
+            exit 1
+          fi
       - run: pytest

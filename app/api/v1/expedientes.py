@@ -31,6 +31,7 @@ from app.schemas.expediente import (
     ExpedienteResponse,
 )
 from app.services import expedientes
+from app.services.expedientes import ResponsableInvalido
 
 router = APIRouter(prefix="/expedientes", tags=["expedientes"])
 
@@ -38,6 +39,11 @@ LIMITE_POR_DEFECTO = 20
 LIMITE_MAXIMO = 100
 
 _CONFLICTO_IDENTIFICADOR = "Ya existe un expediente con ese identificador en esta organización."
+
+_RESPUESTA_RESPONSABLE_INVALIDO = {
+    "codigo": "responsable_invalido",
+    "mensaje": "El responsable debe ser un usuario activo de la misma organización.",
+}
 
 # El mismo texto que da el validador Pydantic (`_validar_identificador` en
 # app/schemas/expediente.py): el cliente ve el mismo error tanto si lo atrapa
@@ -82,6 +88,12 @@ def crear(
 ) -> Expediente:
     try:
         return expedientes.crear(db, actor.organizacion_id, actor.usuario_id, payload)
+    except ResponsableInvalido:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_RESPUESTA_RESPONSABLE_INVALIDO,
+        )
     except IntegrityError as error:
         db.rollback()
         raise _respuesta_integridad(error)
@@ -118,6 +130,12 @@ def actualizar(
     try:
         return expedientes.actualizar(
             db, actor.organizacion_id, actor.usuario_id, expediente, payload
+        )
+    except ResponsableInvalido:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=_RESPUESTA_RESPONSABLE_INVALIDO,
         )
     except IntegrityError as error:
         db.rollback()
