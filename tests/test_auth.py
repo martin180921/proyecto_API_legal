@@ -212,6 +212,68 @@ def test_login_con_contrasena_incorrecta_devuelve_401(client):
     assert respuesta.status_code == 401
 
 
+def test_login_de_usuario_inactivo_con_contrasena_correcta_devuelve_401(client, db_session):
+    """R.2 (Revisión integral, 2026-09-17): antes de este arreglo,
+    `intentar_login` no miraba `Usuario.activo` en ningún punto — un usuario
+    desactivado con la contraseña correcta recibía un JWT de 8h y con él
+    seguía leyendo expedientes indefinidamente. Mismo 401 genérico y mismo
+    evento `login_fallido` que una contraseña mala, para no revelar que la
+    cuenta existe y está desactivada."""
+    registro = _registrar(client).json()
+    usuario = db_session.get(Usuario, registro["usuario_id"])
+    usuario.activo = False
+    db_session.commit()
+
+    respuesta = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": "juan.diego@example.com",
+            "contrasena": "clave-larga-1",
+        },
+    )
+    assert respuesta.status_code == 401
+
+    evento = (
+        db_session.query(EventoAuditoria)
+        .filter_by(organizacion_id=registro["organizacion_id"], accion="login_fallido")
+        .one()
+    )
+    assert evento.entidad == "login_fallido"
+    assert str(evento.usuario_id) == registro["usuario_id"]
+
+
+def test_login_de_usuario_inactivo_sigue_ejecutando_bcrypt(client, db_session, monkeypatch):
+    """`verificar_o_quemar_tiempo` corre siempre, incluso con la contraseña
+    correcta de un usuario inactivo: cortar antes por `activo` reabriría el
+    oráculo de temporización que A.1.2 cerró (un `SELECT` sin bcrypt es
+    medible frente a los ~100-300ms del hash)."""
+    registro = _registrar(client).json()
+    usuario = db_session.get(Usuario, registro["usuario_id"])
+    usuario.activo = False
+    db_session.commit()
+
+    llamadas = []
+    original = autenticacion.verificar_o_quemar_tiempo
+
+    def _espia(contrasena, contrasena_hash):
+        llamadas.append(contrasena_hash)
+        return original(contrasena, contrasena_hash)
+
+    monkeypatch.setattr(autenticacion, "verificar_o_quemar_tiempo", _espia)
+
+    respuesta = client.post(
+        "/v1/auth/login",
+        json={
+            "organizacion": registro["organizacion_slug"],
+            "email": "juan.diego@example.com",
+            "contrasena": "clave-larga-1",
+        },
+    )
+    assert respuesta.status_code == 401
+    assert llamadas == [usuario.contrasena_hash]
+
+
 def test_login_con_organizacion_inexistente_devuelve_401(client):
     respuesta = client.post(
         "/v1/auth/login",

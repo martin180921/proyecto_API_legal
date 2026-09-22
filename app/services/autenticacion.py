@@ -107,8 +107,17 @@ def intentar_login(
         db.query(Usuario).filter_by(organizacion_id=organizacion.id, email=email).one_or_none()
     )
     contrasena_hash = usuario.contrasena_hash if usuario is not None else None
+    credenciales_ok = verificar_o_quemar_tiempo(contrasena, contrasena_hash)
 
-    if not verificar_o_quemar_tiempo(contrasena, contrasena_hash):
+    # `usuario.activo` solo se lee cuando `credenciales_ok` es True: en ese
+    # caso `usuario` no puede ser None (la contraseña coincidió contra un hash
+    # real), así que no hace falta guardar aparte. Un usuario desactivado
+    # cuenta como credencial inválida — mismo 401 genérico y mismo evento
+    # `login_fallido` que una contraseña mala, para no revelar por el mensaje
+    # que la cuenta existe y está desactivada (R.2). `verificar_o_quemar_tiempo`
+    # ya corrió arriba pase lo que pase: cortar antes por `activo` reabriría el
+    # oráculo de temporización que A.1.2 cerró.
+    if not credenciales_ok or not usuario.activo:
         registrar_intento(clave_usuario)
         registrar_intento(clave_ip)
         registrar_intento(clave_ip_global)
