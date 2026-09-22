@@ -38,7 +38,7 @@ jobs:
       DATABASE_URL_TEST: postgresql+psycopg://api_legal_app:api_legal_app@localhost:5432/api_legal_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
