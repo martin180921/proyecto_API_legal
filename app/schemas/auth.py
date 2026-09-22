@@ -2,7 +2,7 @@
 
 `email` se tipa como `str`, no `EmailStr`: `EmailStr` exige el extra
 `email-validator`, que no está en la lista de dependencias que fija el plan
-para T4 (`passlib[bcrypt]`, `pyjwt`). Añadir una dependencia no pedida es la
+para T4 (`bcrypt`, `pyjwt`). Añadir una dependencia no pedida es la
 clase de decisión silenciosa que las reglas de trabajo piden evitar — se deja
 anotado aquí en vez de resolverlo de paso.
 """

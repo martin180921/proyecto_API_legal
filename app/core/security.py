@@ -29,16 +29,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
-
-_contexto_contrasena = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITMO_JWT = "HS256"
 EXPIRACION_TOKEN = timedelta(hours=8)
@@ -47,11 +45,13 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def hash_contrasena(contrasena: str) -> str:
-    return _contexto_contrasena.hash(contrasena)
+    # bcrypt trunca a 72 bytes; se rechaza antes en el esquema (`max_length=72`
+    # en `app/schemas/auth.py`) en vez de truncar en silencio.
+    return bcrypt.hashpw(contrasena.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("ascii")
 
 
 def verificar_contrasena(contrasena: str, contrasena_hash: str) -> bool:
-    return _contexto_contrasena.verify(contrasena, contrasena_hash)
+    return bcrypt.checkpw(contrasena.encode("utf-8"), contrasena_hash.encode("ascii"))
 
 
 # Señuelo calculado una vez al importar el módulo, sobre un valor aleatorio —
