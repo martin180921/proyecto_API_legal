@@ -13,8 +13,10 @@ JSON crudo. El manejador está en `app/main.py`.
 `actor_verificado_desde_cookie` (A.1.3, Bloque A3, 2026-08-21) reutiliza
 `actor_valido_y_activo` de `app/core/security.py` en vez de repetir el mismo
 SELECT: la lección de A.1.1 fue justo que un núcleo compartido extraído a
-medias reaparece duplicado en el borde. Se usa solo en el alta de expediente
-(mutación); la lista sigue con `actor_desde_cookie`.
+medias reaparece duplicado en el borde. Desde A5.1 (2026-09-22, decisión de
+Martin) también protege las rutas de solo lectura, no solo el alta de
+expediente: `actor_desde_cookie` sin verificar queda como el paso intermedio
+del que depende, no como dependencia directa de ninguna ruta.
 """
 import uuid
 

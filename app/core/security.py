@@ -14,11 +14,15 @@ sin sesión de base de datos de por medio. Aquí solo se deja el hueco — la
 sí toca la base: un SELECT por PK para comprobar que el usuario sigue
 existiendo, pertenece a la organización del token y está `activo`. Sin esto,
 revocarle el acceso a un usuario no corta su JWT hasta que expire (hasta 8
-horas). Se aplica solo a las rutas que **mutan** datos
-(`POST`/`PATCH`/archivar de `/v1/expedientes`, alta en `app/web`) — las de
-solo lectura siguen con `usuario_actual`, más barato, porque el coste de que
-un token revocado siga *leyendo* durante unas horas es mucho menor que el de
-que siga *escribiendo*.
+horas).
+
+Hasta A5.1 se aplicaba solo a las rutas que **mutan** datos, y las de solo
+lectura se quedaban con `usuario_actual` (sin SELECT extra), asumiendo que el
+coste de que un token revocado siga *leyendo* unas horas era menor que el de
+que siga *escribiendo*. Martin decidió el 2026-09-22 extenderlo también a
+lectura (`GET /v1/expedientes`, la lista y el alta en `app/web`): un SELECT
+por PK de más en cada lectura, a cambio de que desactivar a alguien le corte
+el acceso de inmediato, no en hasta 8 horas.
 """
 import secrets
 import uuid

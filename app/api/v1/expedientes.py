@@ -1,11 +1,16 @@
 """`/v1/expedientes` — CRUD del expediente (Etapa Entrada, S3–4, Plan técnico
 por fases).
 
-Todo endpoint exige actor autenticado (`usuario_actual`) y toda consulta o
-mutación filtra por `organizacion_id` del actor — mismo patrón que
-`app/api/v1/auth.py` con `Usuario`. Un expediente de otra organización no es
-visible ni editable: se responde 404, no 403 ni 401, para no revelar si el id
-existe en otra organización ([[Multi-tenancy y audit log desde el día 1]]).
+Todo endpoint exige actor autenticado y toda consulta o mutación filtra por
+`organizacion_id` del actor — mismo patrón que `app/api/v1/auth.py` con
+`Usuario`. Un expediente de otra organización no es visible ni editable: se
+responde 404, no 403 ni 401, para no revelar si el id existe en otra
+organización ([[Multi-tenancy y audit log desde el día 1]]).
+
+Todas las rutas —lectura y mutación— usan `usuario_actual_verificado`
+(decisión de Martin, A5.1, 2026-09-22): un `SELECT` por PK de más en cada
+lectura, para que desactivar a alguien le corte el acceso de inmediato en vez
+de hasta que expire su JWT (hasta 8h).
 
 Paginación de `GET /v1/expedientes`: `limit`/`offset` (decidido con Martin,
 2026-08-15, al no estar fijado en otro sitio de la bóveda) — `{items, total}`.
@@ -17,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import ActorActual, usuario_actual, usuario_actual_verificado
+from app.core.security import ActorActual, usuario_actual_verificado
 from app.models.expediente import Expediente
 from app.schemas.expediente import (
     ExpedienteActualizar,
@@ -86,7 +91,7 @@ def crear(
 def listar(
     limit: int = Query(default=LIMITE_POR_DEFECTO, ge=1, le=LIMITE_MAXIMO),
     offset: int = Query(default=0, ge=0),
-    actor: ActorActual = Depends(usuario_actual),
+    actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> ExpedienteListaResponse:
     items, total = expedientes.listar(db, actor.organizacion_id, limit, offset)
@@ -96,7 +101,7 @@ def listar(
 @router.get("/{expediente_id}", response_model=ExpedienteResponse)
 def obtener(
     expediente_id: uuid.UUID,
-    actor: ActorActual = Depends(usuario_actual),
+    actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> Expediente:
     return _obtener_o_404(db, actor.organizacion_id, expediente_id)

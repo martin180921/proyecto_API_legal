@@ -461,7 +461,7 @@ def test_expediente_de_otra_organizacion_no_es_visible_ni_editable(client):
     assert respuesta_a.json()["activo"] is True
 
 
-# --- A.1.3: revalidación del actor en rutas que mutan ----------------------
+# --- A.1.3 / A5.1: revalidación del actor, en mutación y en lectura --------
 
 
 def test_patch_con_usuario_desactivado_devuelve_401_aunque_el_jwt_siga_valido(client, db_session):
@@ -479,10 +479,12 @@ def test_patch_con_usuario_desactivado_devuelve_401_aunque_el_jwt_siga_valido(cl
     assert respuesta.status_code == 401
 
 
-def test_get_con_usuario_desactivado_sigue_funcionando(client, db_session):
-    """Decisión tomada en esta sesión (Bloque A3, A.1.3): las rutas de solo
-    lectura se quedan con `usuario_actual` (sin SELECT extra); solo las que
-    mutan revalidan `activo` contra la base."""
+def test_get_con_usuario_desactivado_devuelve_401(client, db_session):
+    """Decisión revisada el 2026-09-22 (A5.1, Martin): las rutas de solo
+    lectura pasan también a `usuario_actual_verificado`. Hasta entonces se
+    quedaban con `usuario_actual` (sin SELECT extra) y un usuario desactivado
+    seguía leyendo con un JWT ya emitido hasta que expirara (hasta 8h) — el
+    hallazgo R.2 de la revisión integral del 2026-09-17."""
     registro, cabeceras = _registrar_y_loguear(client)
     creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
 
@@ -493,4 +495,18 @@ def test_get_con_usuario_desactivado_sigue_funcionando(client, db_session):
 
     respuesta = client.get(f"/v1/expedientes/{creado['id']}", headers=cabeceras)
 
-    assert respuesta.status_code == 200
+    assert respuesta.status_code == 401
+
+
+def test_listar_con_usuario_desactivado_devuelve_401(client, db_session):
+    registro, cabeceras = _registrar_y_loguear(client)
+    client.post("/v1/expedientes", json=_payload(), headers=cabeceras)
+
+    usuario = db_session.get(Usuario, uuid.UUID(registro["usuario_id"]))
+    usuario.activo = False
+    db_session.flush()
+    db_session.commit()
+
+    respuesta = client.get("/v1/expedientes", headers=cabeceras)
+
+    assert respuesta.status_code == 401

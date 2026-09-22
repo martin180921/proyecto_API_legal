@@ -23,7 +23,6 @@ from app.schemas.expediente import ExpedienteCrear
 from app.services import expedientes
 from app.services.autenticacion import intentar_login
 from app.web.auth import (
-    actor_desde_cookie,
     actor_verificado_desde_cookie,
     borrar_cookie_sesion,
     poner_cookie_sesion,
@@ -77,7 +76,7 @@ def logout() -> RedirectResponse:
 def lista_expedientes(
     request: Request,
     offset: int = Query(default=0, ge=0),
-    actor=Depends(actor_desde_cookie),
+    actor=Depends(actor_verificado_desde_cookie),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     items, total = expedientes.listar(db, actor.organizacion_id, LIMITE_POR_PAGINA, offset)
@@ -96,7 +95,9 @@ def lista_expedientes(
 
 
 @router.get("/expedientes/nuevo", response_class=HTMLResponse, include_in_schema=False)
-def formulario_expediente_nuevo(request: Request, actor=Depends(actor_desde_cookie)) -> HTMLResponse:
+def formulario_expediente_nuevo(
+    request: Request, actor=Depends(actor_verificado_desde_cookie)
+) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "expediente_nuevo.html",
