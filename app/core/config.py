@@ -64,6 +64,23 @@ class Settings(BaseSettings):
     # default seguro es el que protege al que despliega sin leer esto.
     registro_abierto: bool = False
 
+    # Lista blanca de CORS para el SPA (C.2, Bloque C). Vacía = sin CORS, que
+    # es el estado seguro por defecto: sin ningún origen en la lista, el
+    # navegador bloquea la petición cross-origin antes de que llegue aquí.
+    #
+    # `str`, no `list[str]`: pydantic-settings decodifica los campos
+    # complejos leídos del entorno como JSON *antes* de que corra cualquier
+    # validador propio, así que un `.env` con
+    # `CORS_ORIGENES=https://a.com,https://b.com` (el formato humano, sin
+    # comillas ni corchetes) revienta el arranque con `SettingsError` en vez
+    # de parsear. Se guarda como texto y se separa en `cors_origenes_lista`
+    # (abajo) — mismo criterio que ya evita este proyecto con `database_url`.
+    cors_origenes: str = ""
+
+    @property
+    def cors_origenes_lista(self) -> list[str]:
+        return [origen.strip() for origen in self.cors_origenes.split(",") if origen.strip()]
+
     @field_validator("database_url")
     @classmethod
     def _normalizar_driver(cls, valor: str) -> str:

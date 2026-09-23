@@ -7,14 +7,25 @@ import logging
 import time
 import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exception_handlers import (
+    http_exception_handler as _http_exception_handler_por_defecto,
+)
+from fastapi.exception_handlers import (
+    request_validation_exception_handler as _validation_exception_handler_por_defecto,
+)
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.expedientes import router as expedientes_router
 from app.api.v1.health import router as health_router
 from app.core.config import settings
 from app.core.contexto import id_peticion_actual
+from app.core.errores import ErrorDeDominio, codigo_por_status
 from app.core.logging import configure_logging
 from app.core.red import ip_cliente
 from app.web.auth import NoAutenticadoWeb
@@ -31,6 +42,24 @@ app = FastAPI(
         "de un producto publico."
     ),
     version="0.1.0",
+)
+
+# Métodos y cabeceras del CORS (C.2, Bloque C), en constantes propias para
+# que `tests/test_cors.py` monte el mismo `CORSMiddleware` con estos valores
+# exactos en vez de copiarlos a mano y arriesgarse a que diverjan.
+CORS_METODOS = ["GET", "POST", "PATCH", "DELETE"]
+CORS_CABECERAS = ["Authorization", "Content-Type", "X-CSRF-Token"]
+
+# Lista blanca (C.2, Bloque C): `cors_origenes_lista` vacía por defecto = sin
+# cabeceras CORS, el estado seguro. Nunca `allow_origins=["*"]` con
+# `allow_credentials=True` — CORS lo prohíbe (la cookie de sesión de C.3 exige
+# credentials), y los navegadores lo rechazan igual si se intenta.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origenes_lista,
+    allow_credentials=True,
+    allow_methods=CORS_METODOS,
+    allow_headers=CORS_CABECERAS,
 )
 
 app.include_router(health_router, prefix=settings.api_v1_prefix)
@@ -56,6 +85,12 @@ async def log_requests(request: Request, call_next):
     cabecera o la añade — sin depender de provocar un 429 de login primero.
     """
     request_id = str(uuid.uuid4())
+    # También en `request.state`, que sobrevive más allá del `reset()` de más
+    # abajo: `unhandled_exception_handler` corre en `ServerErrorMiddleware`,
+    # FUERA de este middleware (Starlette pone el handler de `Exception` ahí,
+    # no en `ExceptionMiddleware`), así que cuando lo alcanza una excepción no
+    # controlada el contextvar ya se reseteó en el `finally` de abajo.
+    request.state.request_id = request_id
     token = id_peticion_actual.set(request_id)
     inicio = time.monotonic()
     # try/finally (revisión P4, 2026-08-22): el handler global de Exception
@@ -85,6 +120,68 @@ async def log_requests(request: Request, call_next):
                 "ip_resuelta": ip_cliente(request),
             },
         )
+
+
+def _cuerpo_error(codigo: str, mensaje: str, detalle: list[dict] | None = None) -> dict:
+    """El sobre único de error de `/v1` (C.1): `codigo` es lo que compara el
+    frontend y los integradores, `request_id` correlaciona con la línea de
+    log de `log_requests`."""
+    return {
+        "codigo": codigo,
+        "mensaje": mensaje,
+        "detalle": detalle,
+        "request_id": id_peticion_actual.get(),
+    }
+
+
+@app.exception_handler(ErrorDeDominio)
+async def error_de_dominio_handler(request: Request, exc: ErrorDeDominio) -> JSONResponse:
+    cuerpo = _cuerpo_error(exc.codigo, exc.mensaje, exc.detalle)
+    cuerpo["detail"] = exc.mensaje  # alias de compatibilidad durante F1 (C.1)
+    return JSONResponse(status_code=exc.status_code, content=cuerpo)
+
+
+@app.exception_handler(RequestValidationError)
+async def validacion_handler(request: Request, exc: RequestValidationError):
+    """422 de FastAPI/Pydantic con el mismo sobre que el resto de `/v1`
+    (C.1). Fuera de `/v1` (`app/web`, `/docs`...) se conserva el formato por
+    defecto: la validación ahí nunca formó parte del contrato público."""
+    if not request.url.path.startswith(settings.api_v1_prefix):
+        return await _validation_exception_handler_por_defecto(request, exc)
+    detalle = [
+        {"campo": ".".join(str(parte) for parte in error["loc"] if parte != "body"), "problema": error["msg"]}
+        for error in exc.errors()
+    ]
+    cuerpo = _cuerpo_error("validacion", "Error de validación.", detalle)
+    # `exc.errors()` puede traer `ctx.error` con la excepción original
+    # (p. ej. el `ValueError` de un `model_validator`) — no serializable por
+    # `json.dumps` directo, que es lo que usa `JSONResponse`. Mismo
+    # tratamiento que el handler por defecto de FastAPI.
+    cuerpo["detail"] = jsonable_encoder(exc.errors())  # alias de compatibilidad durante F1 (C.1)
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=cuerpo)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Traduce el `HTTPException` que el resto del código sigue lanzando a
+    mano (auth, rate-limit, 404 de expedientes...) al mismo sobre (C.1).
+    Fuera de `/v1` se conserva el comportamiento por defecto de
+    FastAPI/Starlette: `app/web` resuelve su propio `HTTPException` antes de
+    que llegue aquí (ver `procesar_login` en `app/web/router.py`) salvo
+    `NoAutenticadoWeb`, que tiene su propio handler."""
+    if not request.url.path.startswith(settings.api_v1_prefix):
+        return await _http_exception_handler_por_defecto(request, exc)
+    if isinstance(exc.detail, dict) and "codigo" in exc.detail:
+        codigo = exc.detail["codigo"]
+        mensaje = exc.detail.get("mensaje", "")
+        detalle = exc.detail.get("detalle")
+    else:
+        codigo = codigo_por_status(exc.status_code)
+        mensaje = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        detalle = None
+    cuerpo = _cuerpo_error(codigo, mensaje, detalle)
+    cuerpo["detail"] = exc.detail  # alias de compatibilidad durante F1 (C.1)
+    return JSONResponse(status_code=exc.status_code, content=cuerpo, headers=exc.headers)
 
 
 @app.exception_handler(NoAutenticadoWeb)
@@ -123,5 +220,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         extra={"path": request.url.path, "error": str(exc)},
     )
     if request.url.path.startswith(settings.api_v1_prefix):
-        return JSONResponse(status_code=500, content={"detail": "Error interno"})
+        cuerpo = _cuerpo_error("error_interno", "Error interno")
+        # El contextvar ya se reseteó (ver el comentario en `log_requests`);
+        # `request.state` es lo único que sobrevive hasta aquí.
+        cuerpo["request_id"] = getattr(request.state, "request_id", None)
+        cuerpo["detail"] = "Error interno"  # alias de compatibilidad durante F1 (C.1)
+        return JSONResponse(status_code=500, content=cuerpo)
     return HTMLResponse(status_code=500, content=_PAGINA_ERROR_WEB)

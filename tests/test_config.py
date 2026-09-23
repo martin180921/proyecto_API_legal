@@ -126,3 +126,17 @@ def test_fuera_de_produccion_la_clave_de_ejemplo_no_estorba():
     existe para producción; si validara siempre, rompería el arranque de
     cualquiera que clone el repo y siga el README."""
     assert Settings(app_env="local", secret_key="cambiar-en-produccion").secret_key
+
+
+def test_sin_cors_origenes_la_lista_queda_vacia():
+    """Vacía es el estado seguro por defecto (C.2): sin origen en la lista,
+    `CORSMiddleware` no manda ninguna cabecera CORS."""
+    assert Settings().cors_origenes_lista == []
+
+
+def test_cors_origenes_se_separa_por_comas_y_sin_espacios_sueltos():
+    valor = " https://app.ejemplo.com ,https://otro.ejemplo.com,, "
+    assert Settings(cors_origenes=valor).cors_origenes_lista == [
+        "https://app.ejemplo.com",
+        "https://otro.ejemplo.com",
+    ]
