@@ -6,14 +6,35 @@ el `id` solo, mismo patrón que ya usa `app/api/v1/auth.py` con `Usuario`
 en el audit log vía `app/services/auditoria.py` (regla 9 del documento de
 Juan Diego).
 """
+import enum
 import uuid
 
+from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session
 
-from app.models.expediente import Expediente
+from app.models.expediente import Expediente, Seguimiento, TipoProceso
+from app.models.parte import Parte
 from app.models.usuario import Usuario
 from app.schemas.expediente import ExpedienteActualizar, ExpedienteCrear
 from app.services import auditoria
+
+
+class OrdenExpedientes(str, enum.Enum):
+    """Lista cerrada (C.4, Bloque C): un `ordenar` que no está aquí da 422 —
+    lo hace FastAPI solo, al tipar el query param con este enum —, no se
+    ignora en silencio. `urgencia` se añade cuando exista
+    `app/services/terminos.py` (Etapa Procesamiento)."""
+
+    CREADO_EN = "creado_en"
+    CREADO_EN_DESC = "-creado_en"
+    IDENTIFICADOR = "identificador"
+
+
+_COLUMNA_DE_ORDEN = {
+    OrdenExpedientes.CREADO_EN: Expediente.creado_en.asc(),
+    OrdenExpedientes.CREADO_EN_DESC: Expediente.creado_en.desc(),
+    OrdenExpedientes.IDENTIFICADOR: Expediente.identificador.asc(),
+}
 
 
 class ResponsableInvalido(Exception):
@@ -62,12 +83,61 @@ def crear(
 
 
 def listar(
-    db: Session, organizacion_id: uuid.UUID, limit: int, offset: int
+    db: Session,
+    organizacion_id: uuid.UUID,
+    limit: int,
+    offset: int,
+    *,
+    q: str | None = None,
+    activo: bool | None = None,
+    seguimiento: Seguimiento | None = None,
+    tipo_proceso: TipoProceso | None = None,
+    responsable_id: uuid.UUID | None = None,
+    ordenar: OrdenExpedientes = OrdenExpedientes.CREADO_EN_DESC,
 ) -> tuple[list[Expediente], int]:
     consulta = db.query(Expediente).filter_by(organizacion_id=organizacion_id)
+
+    if activo is not None:
+        consulta = consulta.filter(Expediente.activo == activo)
+    if seguimiento is not None:
+        consulta = consulta.filter(Expediente.seguimiento == seguimiento)
+    if tipo_proceso is not None:
+        consulta = consulta.filter(Expediente.tipo_proceso == tipo_proceso)
+    if responsable_id is not None:
+        consulta = consulta.filter(Expediente.responsable_usuario_id == responsable_id)
+    if q:
+        # Con el tamaño del piloto (70 expedientes) un `ILIKE` sin índice
+        # basta; anotado para cuando haya miles: índice `pg_trgm` sobre estas
+        # columnas (C.4, Bloque C). `partes.nombre` es la tabla estructurada
+        # (A.2.2) — se busca con `EXISTS`, no con un `join`, para no duplicar
+        # el expediente por cada parte que matchee (rompería `total`).
+        patron = f"%{q}%"
+        existe_parte_que_coincide = exists().where(
+            Parte.organizacion_id == Expediente.organizacion_id,
+            Parte.expediente_id == Expediente.id,
+            Parte.nombre.ilike(patron),
+        )
+        consulta = consulta.filter(
+            or_(
+                Expediente.identificador.ilike(patron),
+                Expediente.juzgado.ilike(patron),
+                Expediente.despacho.ilike(patron),
+                Expediente.partes.ilike(patron),
+                existe_parte_que_coincide,
+            )
+        )
+
     total = consulta.count()
     items = (
-        consulta.order_by(Expediente.creado_en.desc()).offset(offset).limit(limit).all()
+        consulta.order_by(_COLUMNA_DE_ORDEN[ordenar], Expediente.id)
+        # Desempate por `id` siempre (C.4): `order_by(creado_en...)` a secas
+        # puede repetir o saltarse filas entre páginas cuando hay empates
+        # (dos expedientes con el mismo `creado_en`, posible con
+        # `server_default=func.now()` en inserciones dentro de la misma
+        # transacción — ver `scripts/importar_excel.py`).
+        .offset(offset)
+        .limit(limit)
+        .all()
     )
     return items, total
 

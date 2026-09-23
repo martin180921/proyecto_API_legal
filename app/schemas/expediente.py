@@ -102,3 +102,5 @@ class ExpedienteResponse(BaseModel):
 class ExpedienteListaResponse(BaseModel):
     items: list[ExpedienteResponse]
     total: int
+    limit: int
+    offset: int

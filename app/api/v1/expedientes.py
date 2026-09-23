@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import ActorActual, usuario_actual_verificado
-from app.models.expediente import Expediente
+from app.models.expediente import Expediente, Seguimiento, TipoProceso
 from app.schemas.expediente import (
     ExpedienteActualizar,
     ExpedienteCrear,
@@ -31,7 +31,7 @@ from app.schemas.expediente import (
     ExpedienteResponse,
 )
 from app.services import expedientes
-from app.services.expedientes import ResponsableInvalido
+from app.services.expedientes import OrdenExpedientes, ResponsableInvalido
 
 router = APIRouter(prefix="/expedientes", tags=["expedientes"])
 
@@ -101,13 +101,30 @@ def crear(
 
 @router.get("", response_model=ExpedienteListaResponse)
 def listar(
+    q: str | None = Query(default=None, max_length=255),
+    activo: bool | None = Query(default=None),
+    seguimiento: Seguimiento | None = Query(default=None),
+    tipo_proceso: TipoProceso | None = Query(default=None),
+    responsable_id: uuid.UUID | None = Query(default=None),
+    ordenar: OrdenExpedientes = Query(default=OrdenExpedientes.CREADO_EN_DESC),
     limit: int = Query(default=LIMITE_POR_DEFECTO, ge=1, le=LIMITE_MAXIMO),
     offset: int = Query(default=0, ge=0),
     actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),
 ) -> ExpedienteListaResponse:
-    items, total = expedientes.listar(db, actor.organizacion_id, limit, offset)
-    return ExpedienteListaResponse(items=items, total=total)
+    items, total = expedientes.listar(
+        db,
+        actor.organizacion_id,
+        limit,
+        offset,
+        q=q,
+        activo=activo,
+        seguimiento=seguimiento,
+        tipo_proceso=tipo_proceso,
+        responsable_id=responsable_id,
+        ordenar=ordenar,
+    )
+    return ExpedienteListaResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{expediente_id}", response_model=ExpedienteResponse)

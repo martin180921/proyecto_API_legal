@@ -281,6 +281,258 @@ def test_listar_expedientes_sin_token_devuelve_401(client):
     assert respuesta.status_code == 401
 
 
+def test_listar_expedientes_devuelve_limit_y_offset_en_la_respuesta(client):
+    """C.4: `{items, total, limit, offset}` — el SPA necesita `limit`/`offset`
+    para construir la paginación sin repetir lo que ya mandó en la petición."""
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post("/v1/expedientes", json=_payload(), headers=cabeceras)
+
+    respuesta = client.get("/v1/expedientes?limit=5&offset=0", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["limit"] == 5
+    assert cuerpo["offset"] == 0
+
+
+# --- GET /v1/expedientes — filtros (C.4) ---------------------------------
+
+
+def test_filtrar_por_q_encuentra_por_identificador_juzgado_despacho_y_partes(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post(
+        "/v1/expedientes",
+        json=_payload(juzgado="Juzgado Primero Civil del Circuito de Neiva"),
+        headers=cabeceras,
+    )
+    client.post(
+        "/v1/expedientes",
+        json=_payload(identificador=IDENTIFICADOR_VALIDO_2, juzgado="Juzgado Tercero Laboral"),
+        headers=cabeceras,
+    )
+
+    respuesta = client.get("/v1/expedientes?q=neiva", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["identificador"] == IDENTIFICADOR_VALIDO
+
+
+def test_filtrar_por_q_es_insensible_a_mayusculas(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post("/v1/expedientes", json=_payload(despacho="Despacho 001"), headers=cabeceras)
+
+    respuesta = client.get("/v1/expedientes?q=DESPACHO", headers=cabeceras)
+
+    assert respuesta.json()["total"] == 1
+
+
+def test_filtrar_por_q_encuentra_por_nombre_de_parte_estructurada(client, db_session):
+    """`Parte.nombre` (A.2.2) es la tabla estructurada, aparte del texto
+    libre `Expediente.partes` — el `EXISTS` de C.4 también busca ahí."""
+    from app.models.parte import OrigenParte, Parte
+
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    client.post(
+        "/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras
+    )
+    db_session.add(
+        Parte(
+            organizacion_id=creado["organizacion_id"],
+            expediente_id=creado["id"],
+            tipo="Demandante",
+            nombre="Exporminas Transportes SAS",
+            origen=OrigenParte.IMPORTACION,
+        )
+    )
+    db_session.flush()
+
+    respuesta = client.get("/v1/expedientes?q=exporminas", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["id"] == creado["id"]
+
+
+def test_filtrar_por_q_no_duplica_el_expediente_con_varias_partes_que_coinciden(client, db_session):
+    """Regresión: un `join` con `Parte` en vez del `EXISTS` habría repetido
+    el expediente una vez por cada parte que matchea, e inflado `total`."""
+    from app.models.parte import OrigenParte, Parte
+
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    db_session.add_all(
+        [
+            Parte(
+                organizacion_id=creado["organizacion_id"],
+                expediente_id=creado["id"],
+                tipo="Demandante",
+                nombre="Exporminas Transportes SAS",
+                origen=OrigenParte.IMPORTACION,
+            ),
+            Parte(
+                organizacion_id=creado["organizacion_id"],
+                expediente_id=creado["id"],
+                tipo="Demandado",
+                nombre="Exporminas Logística SAS",
+                origen=OrigenParte.IMPORTACION,
+            ),
+        ]
+    )
+    db_session.flush()
+
+    respuesta = client.get("/v1/expedientes?q=exporminas", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert len(cuerpo["items"]) == 1
+
+
+def test_filtrar_por_q_no_ve_partes_de_otra_organizacion(client, db_session):
+    """Mismo criterio de tenancy que el resto del endpoint: el `EXISTS` de
+    `q` compara también `organizacion_id`, no solo `expediente_id`."""
+    from app.models.parte import OrigenParte, Parte
+
+    _, cabeceras_a = _registrar_y_loguear(client, nombre_organizacion="Bufete A", email="a@example.com")
+    _, cabeceras_b = _registrar_y_loguear(client, nombre_organizacion="Bufete B", email="b@example.com")
+    creado_b = client.post(
+        "/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras_b
+    ).json()
+    db_session.add(
+        Parte(
+            organizacion_id=creado_b["organizacion_id"],
+            expediente_id=creado_b["id"],
+            tipo="Demandante",
+            nombre="Exclusivo De B SAS",
+            origen=OrigenParte.IMPORTACION,
+        )
+    )
+    db_session.flush()
+
+    respuesta = client.get("/v1/expedientes?q=exclusivo", headers=cabeceras_a)
+
+    assert respuesta.json()["total"] == 0
+
+
+def test_ordenar_por_identificador_es_estable(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post("/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras)
+    client.post("/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO), headers=cabeceras)
+
+    respuesta = client.get("/v1/expedientes?ordenar=identificador", headers=cabeceras)
+
+    identificadores = [item["identificador"] for item in respuesta.json()["items"]]
+    assert identificadores == sorted(identificadores)
+
+
+def test_ordenar_con_valor_desconocido_devuelve_422_con_el_sobre_de_c1(client):
+    """C.4: un `ordenar` fuera de la lista cerrada no se ignora — 422, con
+    el mismo sobre de error que fija C.1."""
+    _, cabeceras = _registrar_y_loguear(client)
+
+    respuesta = client.get("/v1/expedientes?ordenar=urgencia", headers=cabeceras)
+
+    assert respuesta.status_code == 422
+    assert respuesta.json()["codigo"] == "validacion"
+
+
+def test_orden_determinista_no_repite_ni_salta_filas_con_creado_en_empatado(client, db_session):
+    """C.4: `order_by(creado_en...)` a secas puede repetir o saltarse filas
+    entre páginas si dos expedientes comparten `creado_en` — posible porque
+    lo pone `server_default=func.now()`, no un contador. El desempate por
+    `id` lo evita; esta prueba lo fuerza igualando `creado_en` a mano."""
+    from datetime import datetime, timezone
+
+    _, cabeceras = _registrar_y_loguear(client)
+    identificadores = [f"1000000000000000000000{i}" for i in range(4)]
+    for identificador in identificadores:
+        client.post("/v1/expedientes", json=_payload(identificador=identificador), headers=cabeceras)
+
+    ahora = datetime.now(timezone.utc)
+    for expediente in db_session.query(Expediente).all():
+        expediente.creado_en = ahora
+    db_session.flush()
+
+    primera_pagina = client.get(
+        "/v1/expedientes?ordenar=-creado_en&limit=2&offset=0", headers=cabeceras
+    ).json()["items"]
+    segunda_pagina = client.get(
+        "/v1/expedientes?ordenar=-creado_en&limit=2&offset=2", headers=cabeceras
+    ).json()["items"]
+
+    ids_primera = {item["id"] for item in primera_pagina}
+    ids_segunda = {item["id"] for item in segunda_pagina}
+    assert len(ids_primera) == 2
+    assert len(ids_segunda) == 2
+    assert ids_primera.isdisjoint(ids_segunda)
+    assert ids_primera | ids_segunda == {
+        str(expediente.id) for expediente in db_session.query(Expediente).all()
+    }
+
+
+def test_filtrar_por_activo_excluye_los_archivados(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    client.post("/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras)
+    client.post(f"/v1/expedientes/{creado['id']}/archivar", headers=cabeceras)
+
+    respuesta = client.get("/v1/expedientes?activo=false", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["id"] == creado["id"]
+
+
+def test_filtrar_por_seguimiento(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post(
+        "/v1/expedientes", json=_payload(seguimiento="automatico"), headers=cabeceras
+    )
+    client.post(
+        "/v1/expedientes",
+        json=_payload(identificador=IDENTIFICADOR_VALIDO_2, seguimiento="manual"),
+        headers=cabeceras,
+    )
+
+    respuesta = client.get("/v1/expedientes?seguimiento=manual", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["seguimiento"] == "manual"
+
+
+def test_filtrar_por_tipo_proceso(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    client.post("/v1/expedientes", json=_payload(tipo_proceso="civil"), headers=cabeceras)
+    client.post(
+        "/v1/expedientes",
+        json=_payload(identificador=IDENTIFICADOR_VALIDO_2, tipo_proceso="administrativo"),
+        headers=cabeceras,
+    )
+
+    respuesta = client.get("/v1/expedientes?tipo_proceso=administrativo", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["tipo_proceso"] == "administrativo"
+
+
+def test_filtrar_por_responsable_id(client):
+    registro, cabeceras = _registrar_y_loguear(client)
+    client.post(
+        "/v1/expedientes",
+        json=_payload(responsable_usuario_id=registro["usuario_id"]),
+        headers=cabeceras,
+    )
+    client.post("/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras)
+
+    respuesta = client.get(f"/v1/expedientes?responsable_id={registro['usuario_id']}", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert cuerpo["total"] == 1
+    assert cuerpo["items"][0]["responsable_usuario_id"] == registro["usuario_id"]
+
+
 # --- GET /v1/expedientes/{id} --------------------------------------------
 
 
