@@ -71,3 +71,12 @@ jobs:
             exit 1
           fi
       - run: pytest
+      - name: openapi.json al día (C.6)
+        # Ningún dato de conexión hace falta aquí: exportar_openapi.py solo
+        # recorre las rutas ya registradas (app/core/db.py::engine es
+        # perezoso). Regenera y compara contra lo versionado — un cambio de
+        # contrato sin el commit de openapi.json rompe el build, que es lo
+        # que hace visible en el diff cada cambio de contrato para el SPA.
+        run: |
+          python scripts/exportar_openapi.py
+          git diff --exit-code openapi.json

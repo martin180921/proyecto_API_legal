@@ -134,7 +134,12 @@ def _crear_organizacion_y_usuario(
     return organizacion, usuario
 
 
-@router.post("/registro", response_model=RegistroResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/registro",
+    response_model=RegistroResponse,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="registrar_organizacion",
+)
 def registro(
     payload: RegistroRequest, request: Request, db: Session = Depends(get_db)
 ) -> RegistroResponse:
@@ -192,7 +197,7 @@ def registro(
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, operation_id="iniciar_sesion")
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
     # Núcleo compartido con `app/web` (cookie httpOnly, mismo JWT) — ver
     # `app/services/autenticacion.py`. Mismo comportamiento que antes de la
@@ -204,7 +209,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     )
 
 
-@router.get("/yo", response_model=YoResponse)
+@router.get("/yo", response_model=YoResponse, operation_id="obtener_actor_actual")
 def yo(actor: ActorActual = Depends(usuario_actual), db: Session = Depends(get_db)) -> YoResponse:
     usuario = db.get(Usuario, actor.usuario_id)
     if usuario is None or usuario.organizacion_id != actor.organizacion_id:

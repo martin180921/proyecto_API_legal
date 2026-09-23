@@ -15,7 +15,7 @@ from app.services import usuarios
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
 
 
-@router.get("", response_model=UsuarioListaResponse)
+@router.get("", response_model=UsuarioListaResponse, operation_id="listar_usuarios")
 def listar(
     actor: ActorActual = Depends(usuario_actual_verificado),
     db: Session = Depends(get_db),

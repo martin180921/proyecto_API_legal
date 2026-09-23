@@ -1,0 +1,1364 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "API Legal",
+    "description": "Plataforma para usuarios individuales y firmas pequeñas del ambito legal, construida sobre una API disenada desde el dia 1 con el rigor de un producto publico.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "description": "Camino feliz: confirma que el servicio esta vivo.",
+        "operationId": "salud",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Salud"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Ready",
+        "description": "Confirma que el servicio puede hablar con Postgres, no solo que el\nproceso está vivo. Si la base no responde, devuelve 503 con un mensaje\ngenérico: este endpoint es público, así que ni la excepción de SQLAlchemy\nni nada de `DATABASE_URL` puede llegar al cuerpo de la respuesta — el\ndetalle va solo al log (regla de T4).",
+        "operationId": "salud_lista",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Salud Lista"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/registro": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Registro",
+        "operationId": "registrar_organizacion",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistroResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "iniciar_sesion",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/yo": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Yo",
+        "operationId": "obtener_actor_actual",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YoResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/expedientes": {
+      "post": {
+        "tags": [
+          "expedientes"
+        ],
+        "summary": "Crear",
+        "operationId": "crear_expediente",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpedienteCrear"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpedienteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "expedientes"
+        ],
+        "summary": "Listar",
+        "operationId": "listar_expedientes",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "activo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Activo"
+            }
+          },
+          {
+            "name": "seguimiento",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Seguimiento"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seguimiento"
+            }
+          },
+          {
+            "name": "tipo_proceso",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TipoProceso"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tipo Proceso"
+            }
+          },
+          {
+            "name": "responsable_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Responsable Id"
+            }
+          },
+          {
+            "name": "ordenar",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/OrdenExpedientes",
+              "default": "-creado_en"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpedienteListaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/expedientes/{expediente_id}": {
+      "get": {
+        "tags": [
+          "expedientes"
+        ],
+        "summary": "Obtener",
+        "operationId": "obtener_expediente",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "expediente_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Expediente Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpedienteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "expedientes"
+        ],
+        "summary": "Actualizar",
+        "operationId": "actualizar_expediente",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "expediente_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Expediente Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExpedienteActualizar"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpedienteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/expedientes/{expediente_id}/archivar": {
+      "post": {
+        "tags": [
+          "expedientes"
+        ],
+        "summary": "Archivar",
+        "operationId": "archivar_expediente",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "expediente_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Expediente Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpedienteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/usuarios": {
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Listar",
+        "operationId": "listar_usuarios",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioListaResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EstadoProcesoFuente": {
+        "type": "string",
+        "enum": [
+          "activo",
+          "remitido",
+          "desaparecido"
+        ],
+        "title": "EstadoProcesoFuente"
+      },
+      "ExpedienteActualizar": {
+        "properties": {
+          "identificador": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identificador"
+          },
+          "tipo_identificador": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TipoIdentificador"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seguimiento": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Seguimiento"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "juzgado": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Juzgado"
+          },
+          "despacho": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Despacho"
+          },
+          "partes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partes"
+          },
+          "tipo_proceso": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TipoProceso"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ultima_actuacion_al_importar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ultima Actuacion Al Importar"
+          },
+          "responsable_usuario_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsable Usuario Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ExpedienteActualizar",
+        "description": "Todos los campos opcionales: PATCH solo toca lo que llega en el cuerpo\n(`exclude_unset` en `app/services/expedientes.py`).\n\n`extra=\"forbid\"` (A5.3, 2026-09-22, decisión de Martin): un campo\ndesconocido en el cuerpo —mal escrito, o uno de los que el motor dejó de\nexponer aquí (`id_proceso_rama`, `fecha_ultima_consulta`,\n`ultimo_consecutivo_visto`)— da 422 en vez de ignorarse en silencio. Es\nel comportamiento correcto para un contrato público."
+      },
+      "ExpedienteCrear": {
+        "properties": {
+          "identificador": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Identificador"
+          },
+          "tipo_identificador": {
+            "$ref": "#/components/schemas/TipoIdentificador"
+          },
+          "seguimiento": {
+            "$ref": "#/components/schemas/Seguimiento"
+          },
+          "juzgado": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Juzgado"
+          },
+          "despacho": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Despacho"
+          },
+          "partes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partes"
+          },
+          "tipo_proceso": {
+            "$ref": "#/components/schemas/TipoProceso"
+          },
+          "ultima_actuacion_al_importar": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ultima Actuacion Al Importar"
+          },
+          "responsable_usuario_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsable Usuario Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identificador",
+          "tipo_identificador",
+          "seguimiento",
+          "tipo_proceso"
+        ],
+        "title": "ExpedienteCrear"
+      },
+      "ExpedienteListaResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpedienteResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ExpedienteListaResponse"
+      },
+      "ExpedienteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "organizacion_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Organizacion Id"
+          },
+          "identificador": {
+            "type": "string",
+            "title": "Identificador"
+          },
+          "tipo_identificador": {
+            "$ref": "#/components/schemas/TipoIdentificador"
+          },
+          "seguimiento": {
+            "$ref": "#/components/schemas/Seguimiento"
+          },
+          "juzgado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Juzgado"
+          },
+          "despacho": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Despacho"
+          },
+          "partes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partes"
+          },
+          "tipo_proceso": {
+            "$ref": "#/components/schemas/TipoProceso"
+          },
+          "ultima_actuacion_al_importar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ultima Actuacion Al Importar"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          },
+          "creado_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Creado En"
+          },
+          "responsable_usuario_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Responsable Usuario Id"
+          },
+          "procesos": {
+            "items": {
+              "$ref": "#/components/schemas/ProcesoFuenteResponse"
+            },
+            "type": "array",
+            "title": "Procesos"
+          },
+          "partes_estructuradas": {
+            "items": {
+              "$ref": "#/components/schemas/ParteResponse"
+            },
+            "type": "array",
+            "title": "Partes Estructuradas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "organizacion_id",
+          "identificador",
+          "tipo_identificador",
+          "seguimiento",
+          "juzgado",
+          "despacho",
+          "partes",
+          "tipo_proceso",
+          "ultima_actuacion_al_importar",
+          "activo",
+          "creado_en",
+          "responsable_usuario_id",
+          "procesos",
+          "partes_estructuradas"
+        ],
+        "title": "ExpedienteResponse"
+      },
+      "FuenteProceso": {
+        "type": "string",
+        "enum": [
+          "rama_judicial"
+        ],
+        "title": "FuenteProceso"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "organizacion": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Organizacion",
+            "description": "Slug de la organización"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "contrasena": {
+            "type": "string",
+            "maxLength": 72,
+            "minLength": 1,
+            "title": "Contrasena"
+          }
+        },
+        "type": "object",
+        "required": [
+          "organizacion",
+          "email",
+          "contrasena"
+        ],
+        "title": "LoginRequest"
+      },
+      "OrdenExpedientes": {
+        "type": "string",
+        "enum": [
+          "creado_en",
+          "-creado_en",
+          "identificador"
+        ],
+        "title": "OrdenExpedientes",
+        "description": "Lista cerrada (C.4, Bloque C): un `ordenar` que no está aquí da 422 —\nlo hace FastAPI solo, al tipar el query param con este enum —, no se\nignora en silencio. `urgencia` se añade cuando exista\n`app/services/terminos.py` (Etapa Procesamiento)."
+      },
+      "OrigenParte": {
+        "type": "string",
+        "enum": [
+          "importacion",
+          "conector"
+        ],
+        "title": "OrigenParte"
+      },
+      "ParteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "expediente_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Expediente Id"
+          },
+          "tipo": {
+            "type": "string",
+            "title": "Tipo"
+          },
+          "nombre": {
+            "type": "string",
+            "title": "Nombre"
+          },
+          "identificacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identificacion"
+          },
+          "origen": {
+            "$ref": "#/components/schemas/OrigenParte"
+          },
+          "creado_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Creado En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "expediente_id",
+          "tipo",
+          "nombre",
+          "identificacion",
+          "origen",
+          "creado_en"
+        ],
+        "title": "ParteResponse"
+      },
+      "ProcesoFuenteResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "expediente_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Expediente Id"
+          },
+          "fuente": {
+            "$ref": "#/components/schemas/FuenteProceso"
+          },
+          "id_externo": {
+            "type": "integer",
+            "title": "Id Externo"
+          },
+          "id_conexion": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Conexion"
+          },
+          "despacho": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Despacho"
+          },
+          "departamento": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departamento"
+          },
+          "es_privado": {
+            "type": "boolean",
+            "title": "Es Privado"
+          },
+          "ultima_actualizacion_fuente": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ultima Actualizacion Fuente"
+          },
+          "fecha_ultima_consulta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Ultima Consulta"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoProcesoFuente"
+          },
+          "creado_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Creado En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "expediente_id",
+          "fuente",
+          "id_externo",
+          "id_conexion",
+          "despacho",
+          "departamento",
+          "es_privado",
+          "ultima_actualizacion_fuente",
+          "fecha_ultima_consulta",
+          "estado",
+          "creado_en"
+        ],
+        "title": "ProcesoFuenteResponse"
+      },
+      "RegistroRequest": {
+        "properties": {
+          "nombre_organizacion": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Nombre Organizacion"
+          },
+          "nombre": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Nombre"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "contrasena": {
+            "type": "string",
+            "maxLength": 72,
+            "minLength": 8,
+            "title": "Contrasena"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nombre_organizacion",
+          "nombre",
+          "email",
+          "contrasena"
+        ],
+        "title": "RegistroRequest"
+      },
+      "RegistroResponse": {
+        "properties": {
+          "organizacion_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Organizacion Id"
+          },
+          "organizacion_slug": {
+            "type": "string",
+            "title": "Organizacion Slug"
+          },
+          "usuario_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Usuario Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "organizacion_id",
+          "organizacion_slug",
+          "usuario_id",
+          "email"
+        ],
+        "title": "RegistroResponse"
+      },
+      "Seguimiento": {
+        "type": "string",
+        "enum": [
+          "automatico",
+          "manual"
+        ],
+        "title": "Seguimiento"
+      },
+      "TipoIdentificador": {
+        "type": "string",
+        "enum": [
+          "radicado_unificado",
+          "radicado_anterior",
+          "sin_radicar",
+          "expediente_contraloria"
+        ],
+        "title": "TipoIdentificador"
+      },
+      "TipoProceso": {
+        "type": "string",
+        "enum": [
+          "civil",
+          "administrativo"
+        ],
+        "title": "TipoProceso"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expira_en_segundos": {
+            "type": "integer",
+            "title": "Expira En Segundos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expira_en_segundos"
+        ],
+        "title": "TokenResponse"
+      },
+      "UsuarioListaResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsuarioResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "UsuarioListaResponse"
+      },
+      "UsuarioResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "nombre": {
+            "type": "string",
+            "title": "Nombre"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "nombre",
+          "email",
+          "activo"
+        ],
+        "title": "UsuarioResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "YoResponse": {
+        "properties": {
+          "usuario_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Usuario Id"
+          },
+          "organizacion_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Organizacion Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "usuario_id",
+          "organizacion_id",
+          "email"
+        ],
+        "title": "YoResponse"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

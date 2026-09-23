@@ -80,7 +80,12 @@ def _obtener_o_404(
     return expediente
 
 
-@router.post("", response_model=ExpedienteResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ExpedienteResponse,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="crear_expediente",
+)
 def crear(
     payload: ExpedienteCrear,
     actor: ActorActual = Depends(usuario_actual_verificado),
@@ -99,7 +104,7 @@ def crear(
         raise _respuesta_integridad(error)
 
 
-@router.get("", response_model=ExpedienteListaResponse)
+@router.get("", response_model=ExpedienteListaResponse, operation_id="listar_expedientes")
 def listar(
     q: str | None = Query(default=None, max_length=255),
     activo: bool | None = Query(default=None),
@@ -127,7 +132,7 @@ def listar(
     return ExpedienteListaResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.get("/{expediente_id}", response_model=ExpedienteResponse)
+@router.get("/{expediente_id}", response_model=ExpedienteResponse, operation_id="obtener_expediente")
 def obtener(
     expediente_id: uuid.UUID,
     actor: ActorActual = Depends(usuario_actual_verificado),
@@ -136,7 +141,9 @@ def obtener(
     return _obtener_o_404(db, actor.organizacion_id, expediente_id)
 
 
-@router.patch("/{expediente_id}", response_model=ExpedienteResponse)
+@router.patch(
+    "/{expediente_id}", response_model=ExpedienteResponse, operation_id="actualizar_expediente"
+)
 def actualizar(
     expediente_id: uuid.UUID,
     payload: ExpedienteActualizar,
@@ -159,7 +166,9 @@ def actualizar(
         raise _respuesta_integridad(error)
 
 
-@router.post("/{expediente_id}/archivar", response_model=ExpedienteResponse)
+@router.post(
+    "/{expediente_id}/archivar", response_model=ExpedienteResponse, operation_id="archivar_expediente"
+)
 def archivar(
     expediente_id: uuid.UUID,
     actor: ActorActual = Depends(usuario_actual_verificado),

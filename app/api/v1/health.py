@@ -28,7 +28,7 @@ router = APIRouter(tags=["health"])
 TIMEOUT_SELECT_1_MS = 3000
 
 
-@router.get("/health")
+@router.get("/health", operation_id="salud")
 def health_check() -> dict:
     """Camino feliz: confirma que el servicio esta vivo."""
     return {
@@ -38,7 +38,7 @@ def health_check() -> dict:
     }
 
 
-@router.get("/health/ready")
+@router.get("/health/ready", operation_id="salud_lista")
 def health_ready(response: Response, db: Session = Depends(get_db)) -> dict:
     """Confirma que el servicio puede hablar con Postgres, no solo que el
     proceso está vivo. Si la base no responde, devuelve 503 con un mensaje
