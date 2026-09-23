@@ -554,6 +554,68 @@ def test_obtener_expediente_inexistente_devuelve_404(client):
     assert respuesta.status_code == 404
 
 
+def test_expediente_sin_partes_estructuradas_ni_procesos_devuelve_listas_vacias(client):
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+
+    assert creado["partes_estructuradas"] == []
+    assert creado["procesos"] == []
+
+
+def test_obtener_expediente_devuelve_partes_estructuradas(client, db_session):
+    """C.5: el detalle trae `partes_estructuradas` (tabla `Parte`, A.2.2),
+    aparte del texto libre `partes` que ya traía la respuesta."""
+    from app.models.parte import OrigenParte, Parte
+
+    _, cabeceras = _registrar_y_loguear(client)
+    creado = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    db_session.add(
+        Parte(
+            organizacion_id=creado["organizacion_id"],
+            expediente_id=creado["id"],
+            tipo="Demandante",
+            nombre="Exporminas Transportes SAS",
+            identificacion="900123456-1",
+            origen=OrigenParte.IMPORTACION,
+        )
+    )
+    db_session.flush()
+
+    respuesta = client.get(f"/v1/expedientes/{creado['id']}", headers=cabeceras)
+
+    cuerpo = respuesta.json()
+    assert len(cuerpo["partes_estructuradas"]) == 1
+    parte = cuerpo["partes_estructuradas"][0]
+    assert parte["nombre"] == "Exporminas Transportes SAS"
+    assert parte["tipo"] == "Demandante"
+    assert parte["identificacion"] == "900123456-1"
+    assert parte["origen"] == "importacion"
+
+
+def test_obtener_expediente_no_devuelve_partes_de_otro_expediente(client, db_session):
+    from app.models.parte import OrigenParte, Parte
+
+    _, cabeceras = _registrar_y_loguear(client)
+    creado_a = client.post("/v1/expedientes", json=_payload(), headers=cabeceras).json()
+    creado_b = client.post(
+        "/v1/expedientes", json=_payload(identificador=IDENTIFICADOR_VALIDO_2), headers=cabeceras
+    ).json()
+    db_session.add(
+        Parte(
+            organizacion_id=creado_b["organizacion_id"],
+            expediente_id=creado_b["id"],
+            tipo="Demandante",
+            nombre="Solo de B",
+            origen=OrigenParte.IMPORTACION,
+        )
+    )
+    db_session.flush()
+
+    respuesta = client.get(f"/v1/expedientes/{creado_a['id']}", headers=cabeceras)
+
+    assert respuesta.json()["partes_estructuradas"] == []
+
+
 # --- PATCH /v1/expedientes/{id} -------------------------------------------
 
 

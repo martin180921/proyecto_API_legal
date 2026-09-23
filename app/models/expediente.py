@@ -155,3 +155,17 @@ class Expediente(Base, TenantMixin):
         viewonly=True,
         order_by="ProcesoFuente.creado_en",
     )
+
+    # viewonly, mismo criterio que `procesos` (C.5, Bloque C): esta relación
+    # es solo para servir el detalle enriquecido, no un camino de escritura —
+    # `Parte` se escribe hoy solo desde `scripts/importar_excel.py`, y mañana
+    # desde el conector.
+    partes_estructuradas: Mapped[list["Parte"]] = relationship(  # noqa: F821
+        "Parte",
+        primaryjoin=(
+            "and_(Expediente.id == foreign(Parte.expediente_id), "
+            "Expediente.organizacion_id == Parte.organizacion_id)"
+        ),
+        viewonly=True,
+        order_by="Parte.creado_en",
+    )

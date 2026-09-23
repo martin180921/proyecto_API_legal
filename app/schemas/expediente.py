@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.expediente import Seguimiento, TipoIdentificador, TipoProceso
+from app.schemas.parte import ParteResponse
 from app.schemas.proceso_fuente import ProcesoFuenteResponse
 
 _PATRON_RADICADO_UNIFICADO = re.compile(r"^\d{23}$")
@@ -95,6 +96,9 @@ class ExpedienteResponse(BaseModel):
     # Solo lectura: lo escribe el motor sobre `ProcesoFuente`, nunca el
     # cliente (B.1-bis, R.4).
     procesos: list[ProcesoFuenteResponse]
+    # Solo lectura, mismo criterio (C.5, Bloque C): tabla estructurada de
+    # partes (A.2.2), aparte del texto libre `partes` de arriba.
+    partes_estructuradas: list[ParteResponse]
 
     model_config = {"from_attributes": True}
 
