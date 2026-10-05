@@ -63,6 +63,8 @@ class ProcesoFuente(Base, TenantMixin):
             "id_externo",
             name="uq_procesos_fuente_organizacion_fuente_id_externo",
         ),
+        # Requisito de la FK compuesta desde `actuaciones` (R.3).
+        UniqueConstraint("organizacion_id", "id", name="uq_procesos_fuente_organizacion_id"),
         ForeignKeyConstraint(
             ["organizacion_id", "expediente_id"],
             ["expedientes.organizacion_id", "expedientes.id"],

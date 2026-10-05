@@ -5,3 +5,5 @@ from app.models.evento_auditoria import EventoAuditoria  # noqa: F401
 from app.models.expediente import Expediente  # noqa: F401
 from app.models.parte import Parte  # noqa: F401
 from app.models.proceso_fuente import ProcesoFuente  # noqa: F401
+from app.models.revision import Revision  # noqa: F401
+from app.models.actuacion import Actuacion  # noqa: F401
