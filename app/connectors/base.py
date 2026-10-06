@@ -122,6 +122,10 @@ class FuenteConsulta(ABC):
         el resto de la corrida como `no_verificado` sin intentarlo."""
         return False
 
+    def close(self) -> None:
+        """Libera lo que el conector tenga abierto (cliente HTTP). El job lo
+        llama al terminar la corrida."""
+
     @abstractmethod
     def resolver(self, identificador: str) -> list[ProcesoEncontrado]:
         """Procesos que la fuente asocia al identificador. `[]` si no hay."""
