@@ -369,8 +369,10 @@ def test_envio_a_otro_despacho_remite_el_proceso_y_da_de_alta_el_nuevo(
     assert [c[0] for c in f.llamadas_consultar] == [300]
 
 
-def test_todos_remitidos_sin_destino_resuelve_cada_corrida(db_session, engine, org):
-    _expediente(db_session, org)
+def test_todos_remitidos_sin_destino_resuelve_cada_corrida_y_no_es_sin_novedad(
+    db_session, engine, org
+):
+    exp = _expediente(db_session, org)
     f = FuenteFalsa()
     f.encontrados[RADICADO] = [_encontrado(100)]
     f.respuestas[100] = _con([_act(1, 1, tipo="ENVÍO A OTROS DESPACHOS")])
@@ -378,6 +380,27 @@ def test_todos_remitidos_sin_destino_resuelve_cada_corrida(db_session, engine, o
     f.llamadas_resolver.clear()
     _correr(db_session, engine, f)
     assert f.llamadas_resolver == [RADICADO]
+    # Nadie mira el expediente: no puede decir «sin novedad».
+    for rev in _revisiones(db_session, exp):
+        assert rev.resultado == ResultadoRevision.NO_VERIFICADO
+        assert "sin proceso activo" in rev.detalle
+
+
+def test_si_la_primera_consulta_falla_el_historial_sigue_siendo_linea_base(
+    db_session, engine, org
+):
+    exp = _expediente(db_session, org)
+    f = FuenteFalsa()
+    f.encontrados[RADICADO] = [_encontrado(100)]
+    f.respuestas[100] = FuenteNoDisponible("HTTP 503")
+    _correr(db_session, engine, f)  # proceso dado de alta, sin cargar
+    f.respuestas[100] = _con([_act(2, 2), _act(1, 1)])
+    _correr(db_session, engine, f)
+
+    primera, segunda = _revisiones(db_session, exp)
+    assert primera.resultado == ResultadoRevision.NO_VERIFICADO
+    assert segunda.resultado == ResultadoRevision.SIN_NOVEDAD
+    assert "línea base: 2" in segunda.detalle
 
 
 def test_quietud_vuelve_a_resolver_y_sin_quietud_no(db_session, engine, org):

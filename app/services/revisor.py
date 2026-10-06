@@ -106,7 +106,9 @@ class ResumenCorrida:
 @contextmanager
 def lock_de_corrida(engine: Engine) -> Iterator[None]:
     """Lock de corrida única. Lanza `CorridaEnCurso` si otra lo tiene."""
-    with engine.connect() as conexion:
+    # AUTOCOMMIT: sin esto la conexión queda «idle in transaction» toda la
+    # corrida (puede durar horas a ~1 req/s).
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conexion:
         obtenido = conexion.execute(
             text("SELECT pg_try_advisory_lock(:clave)"), {"clave": CLAVE_LOCK_CORRIDA}
         ).scalar()
@@ -209,6 +211,10 @@ class _Lectura:
     activos: list[_EstadoProceso]
     conocidos: set[int]  # `id_externo` de todo proceso, activo o no
     hay_procesos: bool
+    # Algún proceso ya se consultó con éxito alguna vez. Un proceso dado de alta
+    # cuya primera consulta falló no cuenta: su historial seguiría siendo línea
+    # base, no novedad.
+    ya_cargado: bool
 
 
 @dataclass
@@ -316,6 +322,7 @@ def _leer(
             activos=activos,
             conocidos={p.id_externo for p in procesos},
             hay_procesos=bool(procesos),
+            ya_cargado=any(p.fecha_ultima_consulta is not None for p in procesos),
         )
         db.rollback()  # solo lectura: sin transacción abierta durante la red
         return lectura
@@ -375,12 +382,17 @@ def _consultar_fuente(
             continue
         plan.nuevos.append(encontrado)
         try:
-            plan.consultas[encontrado.id_externo] = _normalizar_consulta(
-                fuente.consultar(encontrado.id_externo, None)
-            )
+            consulta = _normalizar_consulta(fuente.consultar(encontrado.id_externo, None))
         except ErrorFuente as e:
             # El proceso se da de alta igual; mañana se consulta de cero.
             plan.errores.append(f"{encontrado.id_externo}: {e}")
+            continue
+        plan.consultas[encontrado.id_externo] = consulta
+        if consulta.actuaciones_nuevas:
+            ultima = consulta.actuaciones_nuevas[0]
+            if es_envio_a_otro_despacho(ultima.tipo, ultima.anotacion):
+                # Ya nace remitido: no se queda «activo» hasta mañana.
+                plan.remitidos.add(encontrado.id_externo)
     return plan
 
 
@@ -433,7 +445,7 @@ def _escribir(
         if c.actuaciones_nuevas
     }
     total_nuevas = sum(len(a) for a in actuaciones_por_proceso.values())
-    linea_base = not lectura.hay_procesos
+    linea_base = not lectura.ya_cargado
     hay_novedad = total_nuevas > 0 and not linea_base
 
     detalles: list[str] = []
@@ -444,9 +456,23 @@ def _escribir(
     if plan.errores:
         detalles.append("no verificado: " + "; ".join(plan.errores))
 
+    # Sin ningún proceso activo (todos remitidos y el destino aún sin resolver)
+    # nadie está mirando el expediente: decir `sin_novedad` sería tranquilidad
+    # falsa. Una novedad de este mismo día (la propia remisión) sí se reporta.
+    activos_finales = [
+        p.id_externo
+        for p in [*lectura.activos, *plan.nuevos]
+        if p.id_externo not in plan.remitidos
+    ]
+    sin_proceso_activo = (
+        not activos_finales and bool(lectura.conocidos or plan.nuevos)
+    )
+    if sin_proceso_activo:
+        detalles.append("sin proceso activo: destino de la remisión sin resolver")
+
     if hay_novedad:
         resultado = ResultadoRevision.CON_NOVEDAD
-    elif plan.errores:
+    elif plan.errores or sin_proceso_activo:
         resultado = ResultadoRevision.NO_VERIFICADO
     elif plan.no_encontrado:
         resultado = ResultadoRevision.NO_ENCONTRADO
