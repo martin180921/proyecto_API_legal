@@ -455,3 +455,11 @@ def test_fechas_sin_zona_se_toman_como_colombia_y_se_guardan_en_utc(db_session, 
 )
 def test_detecta_envio_a_otro_despacho(tipo, anotacion, esperado):
     assert es_envio_a_otro_despacho(tipo, anotacion) is esperado
+
+
+def test_limite_revisa_solo_n_expedientes(db_session, engine, org):  # noqa: F811
+    primero = _expediente(db_session, org)
+    segundo = _expediente(db_session, org, identificador="11001400300520210036901")
+    resumen = _correr(db_session, engine, FuenteFalsa(), limite=1)
+    assert resumen.revisados == 1
+    assert len(_revisiones(db_session, primero)) + len(_revisiones(db_session, segundo)) == 1

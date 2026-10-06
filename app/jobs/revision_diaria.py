@@ -1,6 +1,6 @@
 """Job de la revisión diaria (Etapa Procesamiento, reglas 1 y 10).
 
-    python -m app.jobs.revision_diaria
+    python -m app.jobs.revision_diaria [--limite N]
 
 Pensado para el cron de Railway en días hábiles; la continuidad de la regla 10
 la dan el propio cron y el registro de `revisiones`, no este módulo. Una
@@ -22,6 +22,7 @@ Lo que una corrida dejó por expediente está en `revisiones`, agrupado por
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from collections.abc import Callable
@@ -48,6 +49,7 @@ def correr(
     crear_fuente: Callable[[], FuenteConsulta] = _conector_por_defecto,
     session_factory: Callable[[], Session] = SessionLocal,
     motor: Engine = engine,
+    limite: int | None = None,
 ) -> int:
     """Una corrida completa; devuelve el código de salida del proceso."""
     try:
@@ -56,7 +58,7 @@ def correr(
         logger.exception("revision_diaria: no se pudo crear el conector")
         return 1
     try:
-        resumen = ejecutar_corrida(session_factory, fuente, engine=motor)
+        resumen = ejecutar_corrida(session_factory, fuente, engine=motor, limite=limite)
     except CorridaEnCurso:
         logger.warning("revision_diaria: otra corrida tiene el lock; esta no corre")
         return 0
@@ -81,9 +83,17 @@ def correr(
     return 1 if resumen.circuito_abierto else 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Corrida de la revisión diaria")
+    parser.add_argument(
+        "--limite", type=int, default=None,
+        help="revisar solo los N primeros expedientes (corridas de prueba a mano)",
+    )
+    args = parser.parse_args(argv)
+    if args.limite is not None and args.limite < 1:
+        parser.error("--limite debe ser >= 1")
     configure_logging()
-    return correr()
+    return correr(limite=args.limite)
 
 
 if __name__ == "__main__":

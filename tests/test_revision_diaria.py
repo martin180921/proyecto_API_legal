@@ -66,3 +66,11 @@ def test_un_fallo_de_la_corrida_sale_con_1_y_cierra_el_conector(db_session, engi
     monkeypatch.setattr("app.jobs.revision_diaria.ejecutar_corrida", revienta)
     assert _correr(db_session, engine, f) == 1
     assert f.cerrada
+
+
+def test_main_con_limite_invalido_sale_con_error():
+    import pytest
+    from app.jobs.revision_diaria import main
+
+    with pytest.raises(SystemExit):
+        main(["--limite", "0"])

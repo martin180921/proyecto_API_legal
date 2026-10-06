@@ -154,9 +154,12 @@ def ejecutar_corrida(
     engine: Engine,
     ahora: datetime | None = None,
     dias_quietud: int = DIAS_QUIETUD,
+    limite: int | None = None,
 ) -> ResumenCorrida:
     """Revisa todos los expedientes consultables, uno tras otro. `engine` es
-    solo para el lock. Lanza `CorridaEnCurso` sin tocar nada si ya hay una."""
+    solo para el lock. Lanza `CorridaEnCurso` sin tocar nada si ya hay una.
+    `limite` revisa solo los N primeros (orden de alta): para corridas de
+    prueba contra la fuente real, no para producción."""
     ahora = a_utc(ahora or datetime.now(timezone.utc))
     with lock_de_corrida(engine):
         resumen = ResumenCorrida(corrida_id=uuid.uuid4())
@@ -170,6 +173,8 @@ def ejecutar_corrida(
             ).scalars().all()
             consultables = [(e.organizacion_id, e.id) for e in candidatos if es_consultable(e)]
             resumen.no_consultables = len(candidatos) - len(consultables)
+            if limite is not None:
+                consultables = consultables[:limite]
             db.rollback()
         if resumen.no_consultables:
             logger.warning(
