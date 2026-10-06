@@ -77,6 +77,14 @@ class Settings(BaseSettings):
     # (abajo) — mismo criterio que ya evita este proyecto con `database_url`.
     cors_origenes: str = ""
 
+    # Correo de contacto que el conector de la Rama Judicial añade a su
+    # `User-Agent` (`api-legal-revisor/1.0 (+mailto:…)`): si la fuente se
+    # molesta por el tráfico, tiene a quién escribir en vez de bloquear la IP.
+    # Vacío = sin contacto. Sin valor por defecto a propósito: el repositorio
+    # es público y un correo personal no debe viajar en él; va en el entorno
+    # (`.env` local, variable de Railway).
+    contacto_fuente: str = ""
+
     @property
     def cors_origenes_lista(self) -> list[str]:
         return [origen.strip() for origen in self.cors_origenes.split(",") if origen.strip()]

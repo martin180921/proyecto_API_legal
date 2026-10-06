@@ -140,3 +140,12 @@ def test_cors_origenes_se_separa_por_comas_y_sin_espacios_sueltos():
         "https://app.ejemplo.com",
         "https://otro.ejemplo.com",
     ]
+
+
+def test_contacto_fuente_es_opcional_y_vacio_por_defecto(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.delenv("CONTACTO_FUENTE", raising=False)
+    assert Settings(_env_file=None).contacto_fuente == ""
+    monkeypatch.setenv("CONTACTO_FUENTE", "a@b.co")
+    assert Settings(_env_file=None).contacto_fuente == "a@b.co"

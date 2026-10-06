@@ -340,3 +340,16 @@ def test_todo_error_de_la_fuente_es_error_fuente():
     c, _ = _conector(h, reintentos=0)
     with pytest.raises(ErrorFuente):
         c.resolver(RADICADO)
+
+
+def test_user_agent_lleva_el_contacto_si_se_da():
+    from app.connectors.rama_judicial import USER_AGENT, user_agent
+
+    assert user_agent(None) == USER_AGENT
+    assert user_agent("  ") == USER_AGENT
+    assert user_agent("a@b.co") == f"{USER_AGENT} (+mailto:a@b.co)"
+    c = RamaJudicial(contacto="a@b.co")
+    try:
+        assert c._client.headers["User-Agent"] == f"{USER_AGENT} (+mailto:a@b.co)"
+    finally:
+        c.close()

@@ -18,7 +18,8 @@ Disciplina de salida, por qué cada cosa:
   operación (`presupuesto`): un expediente no puede comerse la corrida.
 - Reintentos solo ante fallo de transporte o 5xx (todas las peticiones son
   `GET`, idempotentes), con espera creciente, y nunca ante un 4xx.
-- `User-Agent` identificable, no un navegador fingido.
+- `User-Agent` identificable, no un navegador fingido, con correo de contacto
+  si `contacto` viene (`Settings.contacto_fuente`).
 
 Todo fallo se lanza como `ErrorFuente`; el revisor lo registra como
 `no_verificado`. Una respuesta con otra forma es `RespuestaInvalida`, jamás un
@@ -58,6 +59,12 @@ USER_AGENT = "api-legal-revisor/1.0"
 ZONA = timezone(timedelta(hours=-5))
 _RADICADO = re.compile(r"\d{23}")
 _RECHAZO = {403, 429}
+
+
+def user_agent(contacto: str | None) -> str:
+    """`api-legal-revisor/1.0 (+mailto:contacto)`; sin contacto, solo el nombre."""
+    contacto = (contacto or "").strip()
+    return f"{USER_AGENT} (+mailto:{contacto})" if contacto else USER_AGENT
 
 
 def _fecha(valor: datetime | None) -> datetime | None:
@@ -121,6 +128,7 @@ class RamaJudicial(FuenteConsulta):
         self,
         client: httpx.Client | None = None,
         *,
+        contacto: str | None = None,
         base_url: str = BASE_URL,
         intervalo: float = 1.0,
         reintentos: int = 2,
@@ -133,7 +141,7 @@ class RamaJudicial(FuenteConsulta):
     ) -> None:
         self._client = client or httpx.Client(
             timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
-            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            headers={"User-Agent": user_agent(contacto), "Accept": "application/json"},
         )
         self._base = base_url.rstrip("/")
         self._intervalo = intervalo
