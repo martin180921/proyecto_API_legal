@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     # (`.env` local, variable de Railway).
     contacto_fuente: str = ""
 
+    # Radicado que el canario (`app/jobs/canario.py`) consulta cada día para
+    # comprobar que la Rama sigue respondiendo con la forma que el conector
+    # espera. Es el del spike P4 —ya público en los fixtures—, un proceso
+    # grande y estable. Si algún día la Rama lo da de baja, el canario fallará
+    # con «ya no existe» y habrá que cambiarlo aquí (`CANARIO_RADICADO`).
+    canario_radicado: str = "11001400300520210036900"
+
     @property
     def cors_origenes_lista(self) -> list[str]:
         return [origen.strip() for origen in self.cors_origenes.split(",") if origen.strip()]
