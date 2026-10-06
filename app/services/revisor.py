@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -69,6 +68,7 @@ from app.models.actuacion import Actuacion
 from app.models.expediente import Expediente, Seguimiento, TipoIdentificador
 from app.models.proceso_fuente import EstadoProcesoFuente, ProcesoFuente
 from app.models.revision import Revision, ResultadoRevision
+from app.services.clasificador import normalizar
 
 logger = logging.getLogger(__name__)
 
@@ -131,10 +131,7 @@ def a_utc(fecha: datetime | None) -> datetime | None:
 
 def es_envio_a_otro_despacho(tipo: str, anotacion: str | None) -> bool:
     """«ENVÍO A OTROS DESPACHOS» / «Envía a otro despacho» (spike P4, C.1)."""
-    texto = f"{tipo} {anotacion or ''}"
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(c for c in texto if not unicodedata.combining(c)).casefold()
-    return _ENVIO.search(texto) is not None
+    return _ENVIO.search(normalizar(f"{tipo} {anotacion or ''}")) is not None
 
 
 def es_consultable(expediente: Expediente) -> bool:
