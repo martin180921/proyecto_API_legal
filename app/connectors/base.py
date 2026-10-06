@@ -115,6 +115,13 @@ class ConsultaProceso:
 class FuenteConsulta(ABC):
     fuente: FuenteProceso
 
+    @property
+    def circuito_abierto(self) -> bool:
+        """`True` si el conector ya decidió no salir más a la red en esta
+        corrida (429/403, fallos seguidos). El revisor lo consulta para marcar
+        el resto de la corrida como `no_verificado` sin intentarlo."""
+        return False
+
     @abstractmethod
     def resolver(self, identificador: str) -> list[ProcesoEncontrado]:
         """Procesos que la fuente asocia al identificador. `[]` si no hay."""
