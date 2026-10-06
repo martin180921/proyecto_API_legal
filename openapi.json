@@ -535,10 +535,174 @@
           }
         ]
       }
+    },
+    "/v1/estado-fuentes": {
+      "get": {
+        "tags": [
+          "estado-fuentes"
+        ],
+        "summary": "Obtener",
+        "operationId": "obtener_estado_fuentes",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoFuentesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ConteoResultados": {
+        "properties": {
+          "con_novedad": {
+            "type": "integer",
+            "title": "Con Novedad",
+            "default": 0
+          },
+          "sin_novedad": {
+            "type": "integer",
+            "title": "Sin Novedad",
+            "default": 0
+          },
+          "no_verificado": {
+            "type": "integer",
+            "title": "No Verificado",
+            "default": 0
+          },
+          "no_encontrado": {
+            "type": "integer",
+            "title": "No Encontrado",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ConteoResultados"
+      },
+      "CorridaResumen": {
+        "properties": {
+          "corrida_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Corrida Id"
+          },
+          "iniciada_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Iniciada En"
+          },
+          "ultima_revision_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ultima Revision En"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "resultados": {
+            "$ref": "#/components/schemas/ConteoResultados"
+          }
+        },
+        "type": "object",
+        "required": [
+          "corrida_id",
+          "iniciada_en",
+          "ultima_revision_en",
+          "total",
+          "resultados"
+        ],
+        "title": "CorridaResumen"
+      },
+      "EstadoFuentesResponse": {
+        "properties": {
+          "ultima_corrida": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CorridaResumen"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "no_verificados": {
+            "items": {
+              "$ref": "#/components/schemas/ExpedienteNoVerificado"
+            },
+            "type": "array",
+            "title": "No Verificados"
+          },
+          "no_verificados_total": {
+            "type": "integer",
+            "title": "No Verificados Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ultima_corrida",
+          "no_verificados",
+          "no_verificados_total",
+          "limit",
+          "offset"
+        ],
+        "title": "EstadoFuentesResponse"
+      },
       "EstadoProcesoFuente": {
         "type": "string",
         "enum": [
@@ -776,6 +940,47 @@
           "offset"
         ],
         "title": "ExpedienteListaResponse"
+      },
+      "ExpedienteNoVerificado": {
+        "properties": {
+          "expediente_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Expediente Id"
+          },
+          "identificador": {
+            "type": "string",
+            "title": "Identificador"
+          },
+          "fuente": {
+            "$ref": "#/components/schemas/FuenteProceso"
+          },
+          "detalle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detalle"
+          },
+          "revisado_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Revisado En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expediente_id",
+          "identificador",
+          "fuente",
+          "detalle",
+          "revisado_en"
+        ],
+        "title": "ExpedienteNoVerificado"
       },
       "ExpedienteResponse": {
         "properties": {
