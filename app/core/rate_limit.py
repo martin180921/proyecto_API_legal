@@ -3,7 +3,7 @@
 Parámetro fijado por Martin el 2026-08-05 (Plan técnico por fases, bóveda):
 5 intentos por clave en una ventana de 15 minutos, "contador simple (sin
 slowapi)". Se implementa como un diccionario en el propio proceso porque
-`railway.json` arranca un único proceso uvicorn sin `--workers`: mientras el
+`.railway/railway.ts` arranca un único proceso uvicorn sin `--workers`: mientras el
 despliegue sea un solo proceso, este contador ve todos los intentos. Si el
 piloto pasa a varios procesos o réplicas, deja de compartir estado entre
 ellos y hace falta Redis o una tabla — no antes, sería sobre-ingeniería para

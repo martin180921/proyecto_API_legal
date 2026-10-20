@@ -71,7 +71,7 @@ def test_registro_cerrado_devuelve_403_sin_tocar_la_base_de_datos(client, db_ses
     """El comportamiento por defecto. `POST /v1/auth/registro` es público, sin
     límite y ejecuta bcrypt, que es caro por diseño: abierto, cualquiera crea
     organizaciones ilimitadas en la base del piloto y unas pocas peticiones
-    concurrentes tumban el único proceso de uvicorn de `railway.json`."""
+    concurrentes tumban el único proceso de uvicorn de `.railway/railway.ts`."""
     monkeypatch.setattr(settings, "registro_abierto", False)
     organizaciones_antes = db_session.query(Organizacion).count()
 

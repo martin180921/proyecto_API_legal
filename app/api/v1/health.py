@@ -1,7 +1,7 @@
 """GET /v1/health — el "hola mundo" hito de la Semana 1.
 
 GET /v1/health/ready — A.1.4 (Bloque A2, 2026-08-16): el healthcheck que de
-verdad usa Railway (`railway.json::healthcheckPath`) tiene que tocar la base
+verdad usa Railway (`.railway/railway.ts::healthcheck`) tiene que tocar la base
 de datos. `/v1/health` no la toca a propósito: sigue sirviendo para el
 reinicio de plataforma, sin depender de Postgres.
 """
@@ -21,7 +21,7 @@ router = APIRouter(tags=["health"])
 
 # Corto a propósito: un `SELECT 1` sano tarda milisegundos, y este límite
 # existe para que un Postgres colgado no deje la petición esperando hasta el
-# `healthcheckTimeout` de Railway (60s, `railway.json`). Se fija con
+# `healthcheckTimeout` de Railway (60s, `.railway/railway.ts`). Se fija con
 # `SET LOCAL` dentro de la misma transacción en vez de en la creación del
 # engine (`app/core/db.py`): así queda acotado a esta consulta y no cambia el
 # comportamiento del resto de la aplicación.

@@ -24,7 +24,9 @@ seguimiento de expedientes — eso es Fase 1, ya definida en la decisión
 curl https://proyectoapilegal-production.up.railway.app/v1/health
 ```
 
-La configuración de despliegue vive en `railway.json`, versionada, no en la UI de Railway. Lo
+La configuración de despliegue vive en `.railway/railway.ts` (Infrastructure as Code de Railway),
+versionada, no en la UI de Railway; sustituye al antiguo `railway.json`, que Railway deja de leer el
+2026-12-01. Se revisa con `railway config plan` y se aplica con `railway config apply`. Lo
 importante de ese archivo es el **pre-deploy command**: `alembic upgrade head` corre antes de
 arrancar el contenedor. Sin él, con despliegue automático desde `main`, el código se adelanta al
 esquema de la base de datos y es cuestión de tiempo que rompa.
@@ -162,7 +164,7 @@ mismo criterio que los demás riesgos residuales documentados en la bóveda.
 `REGISTRO_ABIERTO=false` es el valor por defecto. Ese endpoint es público, sin sesión, y ejecuta
 bcrypt, que es caro a propósito: abierto permite a cualquiera crear organizaciones ilimitadas en la
 base del piloto, y unas pocas peticiones concurrentes bastan para tumbar el único proceso de uvicorn
-que arranca `railway.json`. F0 no necesita autoservicio — el piloto es un abogado.
+que arranca `.railway/railway.ts`. F0 no necesita autoservicio — el piloto es un abogado.
 
 Con el registro cerrado, el alta se hace así:
 

@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # `POST /v1/auth/registro` es público, sin límite, y ejecuta bcrypt, que es
     # caro por diseño. Abierto significa dos cosas: cualquiera puede crear
     # organizaciones ilimitadas en la base del piloto, y un puñado de peticiones
-    # concurrentes tumba el único proceso de uvicorn que arranca `railway.json`.
+    # concurrentes tumba el único proceso de uvicorn que arranca `.railway/railway.ts`.
     #
     # F0 no necesita autoservicio: el piloto es un abogado. El alta se hace con
     # `scripts/crear_organizacion.py`. Cerrado por defecto a propósito — el

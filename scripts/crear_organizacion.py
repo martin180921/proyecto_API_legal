@@ -6,7 +6,7 @@ Por qué existe
 ver `app/core/config.py`): F0 no necesita autoservicio, el piloto es un
 abogado, y un endpoint público que ejecuta bcrypt sin límite es a la vez una
 vía para llenar la base de organizaciones y una forma barata de tumbar el
-único proceso de uvicorn que arranca `railway.json`.
+único proceso de uvicorn que arranca `.railway/railway.ts`.
 
 Cerrarlo deja un hueco: hay que poder dar de alta a alguien. Esto es ese hueco,
 por línea de comandos y con **slug explícito** — a diferencia del endpoint, que
