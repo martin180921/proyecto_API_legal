@@ -56,6 +56,12 @@ _REGLAS: tuple[tuple[TipoActuacion, re.Pattern[str]], ...] = (
 )
 _AUTO = re.compile(r"\bautos?\b")
 
+# En la anotación de un auto, «estado» y «en lista» dicen cómo se notifica
+# («Notifíquese por estado»), casi siempre, no qué decide (P5). Estado y
+# fijación en lista son actos de secretaría con su propio `tipo`.
+_NOTIFICACION = {TipoActuacion.ESTADO, TipoActuacion.FIJACION_EN_LISTA}
+_REGLAS_ANOTACION = tuple((t, p) for t, p in _REGLAS if t not in _NOTIFICACION)
+
 
 def normalizar(texto: str | None) -> str:
     """Minúsculas, sin tildes ni diacríticos."""
@@ -63,8 +69,8 @@ def normalizar(texto: str | None) -> str:
     return "".join(c for c in texto if not unicodedata.combining(c)).casefold()
 
 
-def _buscar(texto: str) -> TipoActuacion | None:
-    for tipo, patron in _REGLAS:
+def _buscar(texto: str, reglas=_REGLAS) -> TipoActuacion | None:
+    for tipo, patron in reglas:
         if patron.search(texto):
             return tipo
     return None
@@ -76,5 +82,5 @@ def clasificar(tipo: str, anotacion: str | None = None) -> TipoActuacion:
     if encontrado is not None:
         return encontrado
     if _AUTO.search(texto):
-        return _buscar(normalizar(anotacion)) or TipoActuacion.AUTO
+        return _buscar(normalizar(anotacion), _REGLAS_ANOTACION) or TipoActuacion.AUTO
     return TipoActuacion.OTRO

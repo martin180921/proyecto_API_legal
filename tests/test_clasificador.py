@@ -46,6 +46,17 @@ def test_auto_generico_mira_la_anotacion():
     assert clasificar("Auto", None) is T.AUTO
 
 
+def test_en_la_anotacion_de_un_auto_la_notificacion_no_clasifica():
+    # P5: casi toda anotación de auto termina en «Notifíquese por estado»; eso
+    # dice cómo se notifica, no qué decide.
+    assert clasificar("Auto", "Corre traslado de las excepciones. Notifíquese por estado") is T.TRASLADO
+    assert clasificar("Auto interlocutorio", "Requiere a la parte actora. Notifíquese por estado") is T.REQUERIMIENTO
+    assert clasificar("Auto ordena emplazamiento", "Notifíquese por estado No. 45") is T.AUTO
+    assert clasificar("Auto", "Notificado en lista") is T.AUTO
+    # Por el `tipo` siguen valiendo.
+    assert clasificar("Fijacion estado", None) is T.ESTADO
+
+
 def test_un_tipo_que_no_es_auto_no_consulta_la_anotacion():
     # Un memorial que menciona una audiencia sigue siendo un memorial.
     assert clasificar("Recepción memorial", "SOLICITA AUDIENCIA Y TRASLADO") is T.OTRO
