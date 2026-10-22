@@ -158,6 +158,47 @@ def test_para_en_el_primer_id_ya_visto_y_no_pide_mas_paginas():
     assert sum("Actuaciones" in x.url.path for x in h.llamadas) == 1
 
 
+def test_actuacion_registrada_tarde_debajo_de_una_vista_no_se_pierde():
+    # P5: `fechaRegistro` llega a ir trece meses por detrás de `fechaActuacion`
+    # (spike P4). Si la fuente ordena por fecha de actuación, una registrada
+    # tarde aparece debajo de actuaciones ya vistas; parar en la primera vista
+    # la perdería para siempre, con `sin_novedad` todos los días.
+    p1 = _fixture("actuaciones_p1.json")
+    ids = [a["idRegActuacion"] for a in p1["actuaciones"]]
+    tardia = ids[5]
+    visto = EstadoVisto(
+        datetime(2026, 9, 1, tzinfo=ZONA), frozenset(ids) - {tardia}
+    )
+    h = _router(_rutas_consulta((200, p1)))
+    c, _ = _conector(h)
+    r = c.consultar(ID_PROCESO, visto)
+    assert [a.id_externo for a in r.actuaciones_nuevas] == [tardia]
+    assert sum("Actuaciones" in x.url.path for x in h.llamadas) == 1
+
+
+def test_listado_vacio_de_un_proceso_con_historial_es_respuesta_invalida():
+    # P5: un 200 con `actuaciones: []` para un proceso del que ya se vieron
+    # actuaciones no es «nada nuevo»: la fuente no entregó el historial. Como
+    # `sin_novedad` sería afirmar una revisión que no hubo.
+    visto = EstadoVisto(datetime(2026, 1, 1, tzinfo=ZONA), frozenset({1, 2}))
+    vacio = {"actuaciones": [], "paginacion": {"cantidadPaginas": 1, "pagina": 1}}
+    c, _ = _conector(_router(_rutas_consulta((200, vacio))))
+    with pytest.raises(RespuestaInvalida):
+        c.consultar(ID_PROCESO, visto)
+
+
+def test_listado_sin_ninguna_actuacion_vista_es_respuesta_invalida():
+    # El historial entero «nuevo» de un proceso ya cargado no es novedad: es la
+    # fuente devolviendo otra cosa (otro proceso, ids renumerados). Reportarlo
+    # como `con_novedad` daría por nuevas actuaciones viejas.
+    p1 = _fixture("actuaciones_p1.json")
+    p1["paginacion"] = {"cantidadPaginas": 1, "pagina": 1}
+    visto = EstadoVisto(datetime(2026, 1, 1, tzinfo=ZONA), frozenset({1, 2}))
+    c, _ = _conector(_router(_rutas_consulta((200, p1))))
+    with pytest.raises(RespuestaInvalida):
+        c.consultar(ID_PROCESO, visto)
+
+
 def test_sin_cambios_no_pide_actuaciones():
     detalle = _fixture("detalle.json")
     ultima = datetime(2026, 10, 5, 14, 59, 23, 770000, tzinfo=ZONA)

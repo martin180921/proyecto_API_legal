@@ -212,6 +212,7 @@ class RamaJudicial(FuenteConsulta):
 
         vistas = desde.ids_actuaciones_vistas if desde else frozenset()
         nuevas: list[ActuacionNormalizada] = []
+        ancla = False  # alguna actuación ya vista apareció en lo leído
         pagina = 1
         while True:
             datos = self._get(
@@ -221,8 +222,11 @@ class RamaJudicial(FuenteConsulta):
             for crudo in lote.actuaciones:
                 a = self._validar(_Actuacion, crudo)
                 if a.id_reg_actuacion in vistas:
-                    # Orden descendente (C.5): lo que sigue ya se vio.
-                    return self._resultado(ultima, nuevas)
+                    # No se para aquí (P5): una actuación registrada tarde puede
+                    # quedar debajo de otras ya vistas. La página ya está leída,
+                    # así que recorrerla entera no cuesta peticiones.
+                    ancla = True
+                    continue
                 nuevas.append(
                     ActuacionNormalizada(
                         id_externo=a.id_reg_actuacion,
@@ -237,9 +241,18 @@ class RamaJudicial(FuenteConsulta):
                         crudo=crudo,
                     )
                 )
-            if not self._hay_mas(lote.paginacion, pagina):
-                return self._resultado(ultima, nuevas)
+            # Orden descendente (C.5): una página con algo ya visto basta.
+            if ancla or not self._hay_mas(lote.paginacion, pagina):
+                break
             pagina += 1
+        if vistas and not ancla:
+            # Un proceso con historial cuyo listado no contiene nada de él
+            # (vacío, u otro historial): la fuente no entregó lo que se le
+            # pidió. Ni `sin_novedad` ni todo como novedad (P5).
+            raise RespuestaInvalida(
+                f"idProceso {id_externo}: el listado no contiene ninguna actuación ya vista"
+            )
+        return self._resultado(ultima, nuevas)
 
     # -- internos -------------------------------------------------------------
 
