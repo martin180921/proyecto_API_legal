@@ -360,13 +360,77 @@ def test_envio_a_otro_despacho_remite_el_proceso_y_da_de_alta_el_nuevo(
     # El proceso nuevo se consultó de cero.
     assert f.llamadas_consultar[-1][0] == 300 and f.llamadas_consultar[-1][1] is None
 
-    # Siguiente corrida: el remitido ya no se consulta; el nuevo sí.
+    # Siguiente corrida: el remitido se sigue consultando (P5: le pueden
+    # llegar memoriales), pero no cuenta como proceso activo.
     f.llamadas_consultar.clear()
-    f.respuestas[300] = ConsultaProceso(
+    sin_cambios = ConsultaProceso(
+        ResultadoConsulta.SIN_CAMBIOS, datetime(2026, 10, 2, tzinfo=ZONA)
+    )
+    f.respuestas[100] = sin_cambios
+    f.respuestas[300] = sin_cambios
+    _correr(db_session, engine, f)
+    assert sorted(c[0] for c in f.llamadas_consultar) == [100, 300]
+    assert _revisiones(db_session, exp)[-1].resultado == ResultadoRevision.SIN_NOVEDAD
+
+
+def test_envio_que_no_es_la_ultima_actuacion_tambien_remite(db_session, engine, org):
+    # P5, caso real `85001233300020220013500` (proceso 125016693): «ENVÍO A
+    # OTROS DESPACHOS» en el consecutivo 10 y un memorial de parte recibido
+    # después (11) bajo el mismo idProceso. Mirar solo la última actuación lo
+    # dejaba activo y el expediente salía `sin_novedad` cada día.
+    exp = _expediente(db_session, org)
+    f = FuenteFalsa()
+    f.encontrados[RADICADO] = [_encontrado(100)]
+    f.respuestas[100] = _con([
+        _act(11, 11, tipo="RECIBE MEMORIALES ONLINE"),
+        _act(10, 10, tipo="ENVÍO A OTROS DESPACHOS",
+             anotacion="Actuación automática: Proceso finalizado por: Dispone:Envia a otro despacho"),
+        _act(9, 9, tipo="OFICIO REMISORIO"),
+    ])
+    _correr(db_session, engine, f)
+
+    assert _procesos(db_session, exp)[0].estado == EstadoProcesoFuente.REMITIDO
+    rev = _revisiones(db_session, exp)[-1]
+    assert rev.resultado == ResultadoRevision.NO_VERIFICADO
+    assert "sin proceso activo" in rev.detalle
+
+
+def test_proceso_activo_con_envio_ya_guardado_pasa_a_remitido(db_session, engine, org):
+    # Los datos de producción anteriores a P5: el envío ya está en la base y el
+    # proceso sigue `activo`. Basta el historial guardado, sin actuaciones nuevas.
+    exp = _expediente(db_session, org)
+    f = FuenteFalsa()
+    f.encontrados[RADICADO] = [_encontrado(100)]
+    f.respuestas[100] = _con([
+        _act(11, 11), _act(10, 10, tipo="ENVÍO A OTROS DESPACHOS"),
+    ])
+    _correr(db_session, engine, f)
+    p = _procesos(db_session, exp)[0]
+    p.estado = EstadoProcesoFuente.ACTIVO  # como lo dejó el revisor de antes
+    db_session.commit()
+
+    f.respuestas[100] = ConsultaProceso(
         ResultadoConsulta.SIN_CAMBIOS, datetime(2026, 10, 2, tzinfo=ZONA)
     )
     _correr(db_session, engine, f)
-    assert [c[0] for c in f.llamadas_consultar] == [300]
+    assert _procesos(db_session, exp)[0].estado == EstadoProcesoFuente.REMITIDO
+    assert _revisiones(db_session, exp)[-1].resultado == ResultadoRevision.NO_VERIFICADO
+
+
+def test_memorial_en_un_proceso_remitido_es_novedad(db_session, engine, org):
+    exp = _expediente(db_session, org)
+    f = FuenteFalsa()
+    f.encontrados[RADICADO] = [_encontrado(100)]
+    f.respuestas[100] = _con([_act(1, 1, tipo="ENVÍO A OTROS DESPACHOS")])
+    _correr(db_session, engine, f)
+
+    f.respuestas[100] = _con([_act(2, 2, tipo="RECIBE MEMORIALES ONLINE")])
+    _correr(db_session, engine, f)
+    rev = _revisiones(db_session, exp)[-1]
+    assert rev.resultado == ResultadoRevision.CON_NOVEDAD
+    assert _procesos(db_session, exp)[0].estado == EstadoProcesoFuente.REMITIDO
+    ids = db_session.execute(select(Actuacion.id_externo)).scalars().all()
+    assert sorted(ids) == [1, 2]
 
 
 def test_todos_remitidos_sin_destino_resuelve_cada_corrida_y_no_es_sin_novedad(
@@ -378,6 +442,10 @@ def test_todos_remitidos_sin_destino_resuelve_cada_corrida_y_no_es_sin_novedad(
     f.respuestas[100] = _con([_act(1, 1, tipo="ENVÍO A OTROS DESPACHOS")])
     _correr(db_session, engine, f)  # línea base ya remitida
     f.llamadas_resolver.clear()
+    # El remitido se sigue consultando; como el conector real, sin repetir lo visto.
+    f.respuestas[100] = ConsultaProceso(
+        ResultadoConsulta.SIN_CAMBIOS, datetime(2026, 10, 2, tzinfo=ZONA)
+    )
     _correr(db_session, engine, f)
     assert f.llamadas_resolver == [RADICADO]
     # Nadie mira el expediente: no puede decir «sin novedad».
@@ -451,6 +519,9 @@ def test_fechas_sin_zona_se_toman_como_colombia_y_se_guardan_en_utc(db_session, 
         ("Envio a otro despacho", None, True),
         ("Recepción memorial", "MEMORIAL IMPULSO PROCESAL", False),
         ("Auto", "ordena enviar el oficio a otras entidades", False),
+        # P5, caso real (proceso 122300550): siguió activo bajo el mismo id.
+        ("Envio a otro despacho por redistribucion", "JSR-ENVIO PROCESO TAC", False),
+        ("ENVÍO A OTROS DESPACHOS", "Redistribución de procesos", False),
     ],
 )
 def test_detecta_envio_a_otro_despacho(tipo, anotacion, esperado):

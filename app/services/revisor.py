@@ -30,11 +30,18 @@ entre las dos, sin transacción abierta.
 
 Cuándo se vuelve a `resolver` (da de alta los `idProceso` nuevos): el
 expediente no tiene ningún proceso activo (nunca encontrado, o todos
-remitidos); la última actuación de un proceso es un «envío a otro despacho»
-(ese proceso pasa a `remitido`); o todos los procesos activos llevan
+remitidos); un proceso tiene un «envío a otro despacho» **en cualquier
+posición** de su historial, no solo en la última (P5: un memorial recibido
+después bajo el mismo idProceso no lo devuelve a este despacho; una
+«redistribución» no cuenta), y ese proceso pasa a `remitido`; o todos los
+procesos activos llevan
 `DIAS_QUIETUD` días sin moverse. En el tercer caso no hay dónde guardar «cuándo
 resolví por última vez» sin migración, así que se reparte por una ranura
 determinista por expediente: a lo sumo una vez cada `DIAS_QUIETUD` días.
+
+Los `remitido` se siguen consultando (~2 peticiones al día cada uno) y lo que
+les llegue es novedad, pero no cuentan como «alguien mira el expediente»: sin
+ningún proceso activo, la revisión es `no_verificado`.
 
 Línea base: la primera vez que se ve un expediente (sin ningún proceso en la
 base) se carga su historial completo, pero eso no es «novedad» — el abogado ya
@@ -83,6 +90,9 @@ CLAVE_LOCK_CORRIDA = 0x4150494C45474131
 
 _RADICADO = re.compile(r"\d{23}")
 _ENVIO = re.compile(r"envi[oa] a otros? despachos?")
+# «Envio a otro despacho por redistribucion» (caso real, proceso 122300550):
+# reparto interno, el proceso sigue bajo el mismo idProceso.
+_REDISTRIBUCION = re.compile(r"redistribuc")
 _MAX_DETALLE = 500
 
 
@@ -132,8 +142,10 @@ def a_utc(fecha: datetime | None) -> datetime | None:
 
 
 def es_envio_a_otro_despacho(tipo: str, anotacion: str | None) -> bool:
-    """«ENVÍO A OTROS DESPACHOS» / «Envía a otro despacho» (spike P4, C.1)."""
-    return _ENVIO.search(normalizar(f"{tipo} {anotacion or ''}")) is not None
+    """«ENVÍO A OTROS DESPACHOS» / «Envía a otro despacho» (spike P4, C.1),
+    salvo una redistribución."""
+    texto = normalizar(f"{tipo} {anotacion or ''}")
+    return _ENVIO.search(texto) is not None and _REDISTRIBUCION.search(texto) is None
 
 
 def es_consultable(expediente: Expediente) -> bool:
@@ -206,14 +218,16 @@ class _EstadoProceso:
     id_externo: int
     ultima_actualizacion: datetime | None
     vistas: frozenset[int]
-    ultima_tipo: str | None
-    ultima_anotacion: str | None
+    remitido: bool  # ya `remitido` en la base
+    envio_en_historial: bool  # algún «envío a otro despacho» guardado
 
 
 @dataclass
 class _Lectura:
     identificador: str
-    activos: list[_EstadoProceso]
+    # Activos **y** remitidos: a un remitido le siguen llegando memoriales
+    # (P5, proceso 125016693). Solo los activos cuentan como «alguien mira».
+    procesos: list[_EstadoProceso]
     conocidos: set[int]  # `id_externo` de todo proceso, activo o no
     hay_procesos: bool
     # Algún proceso ya se consultó con éxito alguna vez. Un proceso dado de alta
@@ -291,40 +305,31 @@ def _leer(
                 ProcesoFuente.fuente == fuente.fuente,
             )
         ).scalars().all()
-        activos = []
+        consultables = []
         for p in procesos:
-            if p.estado != EstadoProcesoFuente.ACTIVO:
+            if p.estado not in (EstadoProcesoFuente.ACTIVO, EstadoProcesoFuente.REMITIDO):
                 continue
-            vistas = frozenset(
-                db.execute(
-                    select(Actuacion.id_externo).where(
-                        Actuacion.organizacion_id == organizacion_id,
-                        Actuacion.proceso_fuente_id == p.id,
-                    )
-                ).scalars()
-            )
-            ultima = db.execute(
-                select(Actuacion.tipo, Actuacion.anotacion)
-                .where(
+            historial = db.execute(
+                select(Actuacion.id_externo, Actuacion.tipo, Actuacion.anotacion).where(
                     Actuacion.organizacion_id == organizacion_id,
                     Actuacion.proceso_fuente_id == p.id,
                 )
-                .order_by(Actuacion.consecutivo.desc())
-                .limit(1)
-            ).first()
-            activos.append(
+            ).all()
+            consultables.append(
                 _EstadoProceso(
                     id=p.id,
                     id_externo=p.id_externo,
                     ultima_actualizacion=a_utc(p.ultima_actualizacion_fuente),
-                    vistas=vistas,
-                    ultima_tipo=ultima.tipo if ultima else None,
-                    ultima_anotacion=ultima.anotacion if ultima else None,
+                    vistas=frozenset(a.id_externo for a in historial),
+                    remitido=p.estado == EstadoProcesoFuente.REMITIDO,
+                    envio_en_historial=any(
+                        es_envio_a_otro_despacho(a.tipo, a.anotacion) for a in historial
+                    ),
                 )
             )
         lectura = _Lectura(
             identificador=expediente.identificador,
-            activos=activos,
+            procesos=consultables,
             conocidos={p.id_externo for p in procesos},
             hay_procesos=bool(procesos),
             ya_cargado=any(p.fecha_ultima_consulta is not None for p in procesos),
@@ -342,7 +347,7 @@ def _consultar_fuente(
 ) -> _Plan:
     plan = _Plan()
 
-    for p in lectura.activos:
+    for p in lectura.procesos:
         try:
             plan.consultas[p.id_externo] = _normalizar_consulta(
                 fuente.consultar(
@@ -352,21 +357,21 @@ def _consultar_fuente(
         except ErrorFuente as e:
             plan.errores.append(f"{p.id_externo}: {e}")
 
-    # «Envío a otro despacho» en la última actuación: ese proceso terminó aquí
-    # y continúa bajo otro idProceso.
-    for p in lectura.activos:
-        consulta = plan.consultas.get(p.id_externo)
-        if consulta is None:
+    # «Envío a otro despacho» en **cualquier** posición del historial, no solo
+    # la última (P5): un memorial recibido después bajo el mismo idProceso no
+    # devuelve el proceso a este despacho. Continúa bajo otro idProceso.
+    for p in lectura.procesos:
+        if p.remitido:
             continue
-        if consulta.actuaciones_nuevas:
-            ultima = consulta.actuaciones_nuevas[0]
-            tipo, anotacion = ultima.tipo, ultima.anotacion
-        else:
-            tipo, anotacion = p.ultima_tipo, p.ultima_anotacion
-        if tipo is not None and es_envio_a_otro_despacho(tipo, anotacion):
+        consulta = plan.consultas.get(p.id_externo)
+        nuevas = consulta.actuaciones_nuevas if consulta else ()
+        if p.envio_en_historial or _hay_envio(nuevas):
             plan.remitidos.add(p.id_externo)
 
-    activos_restantes = [p for p in lectura.activos if p.id_externo not in plan.remitidos]
+    activos_restantes = [
+        p for p in lectura.procesos
+        if not p.remitido and p.id_externo not in plan.remitidos
+    ]
     if not _debe_resolver(
         lectura, activos_restantes, plan, expediente_id, ahora, dias_quietud
     ):
@@ -393,12 +398,14 @@ def _consultar_fuente(
             plan.errores.append(f"{encontrado.id_externo}: {e}")
             continue
         plan.consultas[encontrado.id_externo] = consulta
-        if consulta.actuaciones_nuevas:
-            ultima = consulta.actuaciones_nuevas[0]
-            if es_envio_a_otro_despacho(ultima.tipo, ultima.anotacion):
-                # Ya nace remitido: no se queda «activo» hasta mañana.
-                plan.remitidos.add(encontrado.id_externo)
+        if _hay_envio(consulta.actuaciones_nuevas):
+            # Ya nace remitido: no se queda «activo» hasta mañana.
+            plan.remitidos.add(encontrado.id_externo)
     return plan
+
+
+def _hay_envio(actuaciones: tuple[ActuacionNormalizada, ...]) -> bool:
+    return any(es_envio_a_otro_despacho(a.tipo, a.anotacion) for a in actuaciones)
 
 
 def _debe_resolver(
@@ -466,7 +473,7 @@ def _escribir(
     # falsa. Una novedad de este mismo día (la propia remisión) sí se reporta.
     activos_finales = [
         p.id_externo
-        for p in [*lectura.activos, *plan.nuevos]
+        for p in [*(q for q in lectura.procesos if not q.remitido), *plan.nuevos]
         if p.id_externo not in plan.remitidos
     ]
     sin_proceso_activo = (
